@@ -27,7 +27,7 @@ from dialogs.edit_game_dialog import EditGameDialog
 from dialogs.add_game_dialog import AddGameWidget
 from dialogs.settings_dialog import SettingsWidget
 from threads.process_monitor import ProcessMonitor
-from utils.helpers import load_json, save_json, format_playtime, fix_path_str
+from utils.helpers import load_json, save_json, format_playtime, fix_path_str, resolve_user_path
 from utils.game_launcher import GameLauncher
 
 
@@ -818,7 +818,7 @@ class GameLibraryTracker(QMainWindow):
             elif IS_LINUX:
                 compat_tool = (game_data.get("compat_tool") or "").strip().lower()
                 proton_path = game_data.get('proton_path')
-                wine_prefix = (game_data.get("wine_prefix") or "").strip()
+                wine_prefix = resolve_user_path((game_data.get("wine_prefix") or "").strip())
                 use_proton = proton_path and Path(proton_path).exists()
                 
                 if compat_tool == "wine":

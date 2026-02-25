@@ -33,8 +33,10 @@ class LibraryControllerOps:
             return None
 
     def _default_linux_wine_prefix(self, game_name):
-        safe_name = (game_name or "").strip() or "Game"
-        return str(Path.home() / ".local" / "share" / "gametracker" / "default" / safe_name)
+        safe_name = "".join(
+            ch if (ch.isalnum() or ch in ("-", "_", ".")) else "_" for ch in str(game_name or "")
+        ).strip("_") or "Game"
+        return str(Path.home() / ".local" / "share" / "gametracker" / "Prefixes" / safe_name)
 
     def remove_selected(self):
         c = self._c

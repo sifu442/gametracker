@@ -37,7 +37,9 @@ Dialog {
         editExeLinuxField.text = backendRef.selectedGameExeLinux
         var defaultPrefix = ""
         if (Qt.platform.os === "linux" && !backendRef.selectedGameIsEmulated) {
-            defaultPrefix = "~/.local/share/gametracker/default/" + (backendRef.selectedGameName || "Game")
+            var rawName = backendRef.selectedGameName || "Game"
+            var safeName = rawName.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^_+|_+$/g, "")
+            defaultPrefix = "~/.local/share/gametracker/Prefixes/" + (safeName || "Game")
         }
         editDetails.winePrefixField.text = backendRef.selectedGameWinePrefix || defaultPrefix
         editDetails.wineDllOverridesField.text = backendRef.selectedGameWineDllOverrides

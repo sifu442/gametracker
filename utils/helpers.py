@@ -7,11 +7,32 @@ import re
 from pathlib import Path
 
 
+def resolve_user_path(p):
+    """Resolve user-home shorthands without hardcoding a username."""
+    if p is None:
+        return p
+    path = str(p).strip()
+    if not path:
+        return path
+    home = str(Path.home())
+    if path == "~":
+        return home
+    if path.startswith("~/"):
+        return home + path[1:]
+    # Accept common placeholder form used in docs/examples.
+    if platform.system() == "Linux":
+        if path == "/home/username":
+            return home
+        if path.startswith("/home/username/"):
+            return home + path[len("/home/username"):]
+    return path
+
+
 def fix_path_str(p):
     """Normalize Windows backslashes to forward slashes safely"""
     if not p:
         return p
-    path = str(p).replace("\\", "/")
+    path = resolve_user_path(p).replace("\\", "/")
     is_windows = platform.system() == "Windows"
     is_linux = platform.system() == "Linux"
     if is_linux and path.lower().startswith("d:/"):
@@ -25,7 +46,7 @@ def canonicalize_path(p):
     """Store paths in canonical Windows-style D:/ form when on shared SSD."""
     if not p:
         return p
-    path = str(p).replace("\\", "/")
+    path = resolve_user_path(p).replace("\\", "/")
     if path.startswith("/media/SSD"):
         return "D:" + path[len("/media/SSD"):]
     return path

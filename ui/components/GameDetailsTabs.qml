@@ -512,7 +512,7 @@ Item {
                     Text { text: "Wine Prefix"; color: "#d6d6d6" }
                     RowLayout {
                         Layout.fillWidth: true
-                        TextField { id: winePrefixField; Layout.fillWidth: true; placeholderText: "~/.local/share/gametracker/default/<Game Name>" }
+                        TextField { id: winePrefixField; Layout.fillWidth: true; placeholderText: "~/.local/share/gametracker/Prefixes/<Game Name>" }
                         StyledButton {
                             text: "Browse"
                             onClicked: root.openFolderDialog(winePrefixField)

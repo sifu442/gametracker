@@ -20,7 +20,7 @@ from core.constants import COVERS_DIR, HEROES_DIR, IS_LINUX, IS_WINDOWS, LOGOS_D
 from threads.process_monitor import ProcessMonitor
 from utils.emulator_launcher import EmulatorLauncher
 from utils.game_launcher import GameLauncher
-from utils.helpers import fix_path_str
+from utils.helpers import fix_path_str, resolve_user_path
 
 if TYPE_CHECKING:
     from backend.controllers import AppController
@@ -464,7 +464,7 @@ class LaunchControllerOps:
         )
         if c._current_runtime_managed:
             c._current_runtime_tool = compat_tool or ("proton" if game_data.get("proton_path") else "")
-            c._current_runtime_prefix = str(game_data.get("wine_prefix") or "").strip()
+            c._current_runtime_prefix = resolve_user_path(str(game_data.get("wine_prefix") or "").strip())
             c._current_runtime_proton_path = str(game_data.get("proton_path") or "").strip()
             c._current_runtime_exe_name = Path(str(exe_path)).name.lower()
             c._current_runtime_game_name = str(game_data.get("name") or "").strip().lower()

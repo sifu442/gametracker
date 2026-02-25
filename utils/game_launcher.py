@@ -8,6 +8,7 @@ import shutil
 import re
 from pathlib import Path
 from core.constants import IS_WINDOWS, IS_LINUX, DEFAULT_PROTON_PATH
+from utils.helpers import resolve_user_path
 
 
 class GameLauncher:
@@ -30,12 +31,12 @@ class GameLauncher:
     @staticmethod
     def _safe_path_token(value):
         token = "".join(ch if (ch.isalnum() or ch in ("-", "_", ".")) else "_" for ch in str(value or ""))
-        return token.strip("_") or "default"
+        return token.strip("_") or "Game"
 
     @staticmethod
     def _default_compat_prefix(game_name):
-        safe_name = (game_name or "").strip() or "Game"
-        return Path.home() / ".local" / "share" / "gametracker" / "default" / safe_name
+        safe_name = GameLauncher._safe_path_token(game_name)
+        return Path.home() / ".local" / "share" / "gametracker" / "Prefixes" / safe_name
 
     @staticmethod
     def _detect_wine_resolution():
@@ -91,7 +92,7 @@ class GameLauncher:
                 
             elif IS_LINUX:
                 tool = (compat_tool or "").strip().lower()
-                prefix_path = Path(compat_path).expanduser() if compat_path else None
+                prefix_path = Path(resolve_user_path(compat_path)).expanduser() if compat_path else None
                 dll_overrides = (wine_dll_overrides or "").strip()
                 app_id = str(steam_app_id or "").strip()
                 if not prefix_path and tool in ("wine", "proton"):
@@ -102,11 +103,7 @@ class GameLauncher:
                         prefix_path.mkdir(parents=True, exist_ok=True)
                     except PermissionError:
                         # Fallback to a user-writable path when configured prefix is not writable.
-                        tool_key = GameLauncher._safe_path_token(
-                            Path(proton_path).name if proton_path else (tool or "native")
-                        )
-                        game_key = GameLauncher._safe_path_token(exe_path.stem)
-                        fallback = Path.home() / ".local" / "share" / "gametracker" / "compat" / tool_key / game_key
+                        fallback = GameLauncher._default_compat_prefix(game_name or exe_path.stem)
                         fallback.mkdir(parents=True, exist_ok=True)
                         print(
                             f"Compat path not writable: {prefix_path}. "
