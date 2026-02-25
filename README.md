@@ -40,3 +40,4 @@ User data such as covers/logos/heroes, caches, and shortcuts are ignored via `.g
 # gametracker
 # gametracker
 # gametracker
+# gametracker
