@@ -35,9 +35,3 @@ project/
   threads/
 ```
 
-## Notes
-User data such as covers/logos/heroes, caches, and shortcuts are ignored via `.gitignore`.
-# gametracker
-# gametracker
-# gametracker
-# gametracker
