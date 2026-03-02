@@ -15,6 +15,7 @@ import shutil
 import psutil
 from pathlib import Path
 from typing import TYPE_CHECKING
+from PyQt6.QtCore import QTimer
 
 from core.constants import COVERS_DIR, HEROES_DIR, IS_LINUX, IS_WINDOWS, LOGOS_DIR, SCRIPT_DIR
 from threads.process_monitor import ProcessMonitor
@@ -31,6 +32,59 @@ class LaunchControllerOps:
 
     def __init__(self, controller: "AppController") -> None:
         self._c = controller
+        self._steam_probe_timer = QTimer()
+        self._steam_probe_timer.setInterval(750)
+        self._steam_probe_timer.timeout.connect(self._probe_steam_game_process)
+        self._steam_probe_game_id = ""
+        self._steam_probe_target = ""
+        self._steam_probe_deadline = 0.0
+
+    def _norm(self, value):
+        return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+    def _probe_steam_game_process(self):
+        c = self._c
+        if not self._steam_probe_game_id or not self._steam_probe_target:
+            self._steam_probe_timer.stop()
+            return
+        if time.time() > self._steam_probe_deadline:
+            self._steam_probe_timer.stop()
+            self._steam_probe_game_id = ""
+            self._steam_probe_target = ""
+            self._steam_probe_deadline = 0.0
+            return
+
+        target = self._norm(self._steam_probe_target)
+        best = None
+        best_ct = 0.0
+        for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "create_time"]):
+            try:
+                info = proc.info
+                pname = str(info.get("name") or "").lower()
+                if pname in ("steam", "steam.exe"):
+                    continue
+                hay = " ".join(
+                    [
+                        str(info.get("name") or ""),
+                        str(info.get("exe") or ""),
+                        " ".join(info.get("cmdline") or []),
+                    ]
+                )
+                if target and target in self._norm(hay):
+                    ct = float(info.get("create_time") or 0.0)
+                    if ct > best_ct:
+                        best_ct = ct
+                        best = (int(info.get("pid") or 0), ct)
+            except Exception:
+                continue
+
+        if best and best[0] > 0:
+            self._steam_probe_timer.stop()
+            gid = self._steam_probe_game_id
+            self._steam_probe_game_id = ""
+            self._steam_probe_target = ""
+            self._steam_probe_deadline = 0.0
+            c._start_tracking(gid, best[0], best[1], None)
 
     def get_exe_path_for_platform(self, game_data):
         exe_paths = game_data.get("exe_paths", {})
@@ -335,8 +389,11 @@ class LaunchControllerOps:
             return
 
         def _launch_subprocess_and_track(cmd, fail_message, env=None):
+            launch_cmd = list(cmd) if isinstance(cmd, (list, tuple)) else [str(cmd)]
+            if IS_LINUX and launch_cmd and launch_cmd[0] != "game-performance":
+                launch_cmd = ["game-performance"] + launch_cmd
             try:
-                proc = subprocess.Popen(cmd, env=env)
+                proc = subprocess.Popen(launch_cmd, env=env)
             except Exception:
                 c.errorMessage.emit(fail_message)
                 return False
@@ -356,7 +413,20 @@ class LaunchControllerOps:
             if not cmd:
                 c.errorMessage.emit("Steam client not found.")
                 return
-            _launch_subprocess_and_track(cmd, "Failed to launch Steam.")
+            # Do not track Steam launcher PID as game runtime; Steam process can stay alive.
+            # Steam playtime is read from Steam userdata, not local PID runtime.
+            try:
+                subprocess.Popen(cmd)
+            except Exception:
+                c.errorMessage.emit("Failed to launch Steam.")
+                return
+            # Probe for the actual game process by configured process_name.
+            target = str(game_data.get("process_name") or "").strip()
+            if target:
+                self._steam_probe_game_id = c._selected_game_id
+                self._steam_probe_target = target
+                self._steam_probe_deadline = time.time() + 60.0
+                self._steam_probe_timer.start()
             return
 
         if game_data.get("source") == "riot" or game_data.get("riot_product_id"):

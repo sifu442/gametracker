@@ -49,6 +49,12 @@ class GameLauncher:
         except Exception:
             pass
         return "2560x1440"
+
+    @staticmethod
+    def _with_linux_game_performance(cmd):
+        if IS_LINUX and cmd and cmd[0] != "game-performance":
+            return ["game-performance"] + cmd
+        return cmd
     
     @staticmethod
     def launch_game(
@@ -167,7 +173,7 @@ class GameLauncher:
                             umu_env.setdefault("GAMEID", app_id if app_id.isdigit() else f"gametracker-{exe_path.stem}")
                             try:
                                 proc = subprocess.Popen(
-                                    [umu_run, str(exe_path)],
+                                    GameLauncher._with_linux_game_performance([umu_run, str(exe_path)]),
                                     env=umu_env,
                                     cwd=str(exe_path.parent),
                                     start_new_session=True,
@@ -182,6 +188,7 @@ class GameLauncher:
                         steam_run = shutil.which("steam-run")
                         if steam_run:
                             cmd = [steam_run] + cmd
+                        cmd = GameLauncher._with_linux_game_performance(cmd)
                         proc = subprocess.Popen(
                             cmd,
                             env=env,
@@ -212,6 +219,7 @@ class GameLauncher:
                     steam_run = shutil.which("steam-run")
                     if steam_run:
                         cmd = [steam_run] + cmd
+                    cmd = GameLauncher._with_linux_game_performance(cmd)
                     env = os.environ.copy()
                     if prefix_path:
                         env["WINEPREFIX"] = str(prefix_path)
@@ -250,6 +258,7 @@ class GameLauncher:
                             ]
                             if steam_run:
                                 fallback_cmd = [steam_run] + fallback_cmd
+                            fallback_cmd = GameLauncher._with_linux_game_performance(fallback_cmd)
                             proc = subprocess.Popen(
                                 fallback_cmd,
                                 env=env,
@@ -263,7 +272,10 @@ class GameLauncher:
                             return None, None, None
                 else:
                     # Native Linux execution
-                    proc = subprocess.Popen([str(exe_path)], cwd=str(exe_path.parent))
+                    proc = subprocess.Popen(
+                        GameLauncher._with_linux_game_performance([str(exe_path)]),
+                        cwd=str(exe_path.parent),
+                    )
                     pid = proc.pid
                     start_time = psutil.Process(pid).create_time()
                     return proc, pid, start_time

@@ -6,7 +6,7 @@ import subprocess
 import psutil
 import os
 from pathlib import Path
-from core.constants import IS_WINDOWS, SCRIPT_DIR
+from core.constants import IS_WINDOWS, IS_LINUX, SCRIPT_DIR
 from utils.helpers import fix_path_str
 
 
@@ -81,6 +81,9 @@ class EmulatorLauncher:
 
         if extra_args:
             args.extend(extra_args)
+
+        if IS_LINUX and args and args[0] != "game-performance":
+            args = ["game-performance"] + args
         return args
 
     @staticmethod
