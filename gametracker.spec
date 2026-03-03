@@ -14,10 +14,10 @@ def add_tree(rel_path):
 
 def build_windows_icon_from_svg():
     """
-    Render ui/assets/gamepad.svg to a PNG so PyInstaller can convert it to .ico.
+    Render ui/assets/halo.svg to a PNG so PyInstaller can convert it to .ico.
     Falls back to default icon if rendering fails.
     """
-    svg_path = project_root / "ui" / "assets" / "gamepad.svg"
+    svg_path = project_root / "ui" / "assets" / "halo.svg"
     if not svg_path.exists():
         return None
     try:
@@ -26,7 +26,7 @@ def build_windows_icon_from_svg():
 
         out_dir = project_root / "build"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_png = out_dir / "gamepad_icon_256.png"
+        out_png = out_dir / "halo_icon_256.png"
 
         image = QImage(256, 256, QImage.Format.Format_ARGB32)
         image.fill(0)

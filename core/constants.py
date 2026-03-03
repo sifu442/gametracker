@@ -2,14 +2,34 @@
 Constants and configuration for Game Library Tracker
 """
 import platform
+import sys
+import os
 from pathlib import Path
 
 # Determine OS
 IS_WINDOWS = platform.system() == 'Windows'
 IS_LINUX = platform.system() == 'Linux'
 
-# Store data in the project root directory
-SCRIPT_DIR = Path(__file__).parent.parent.resolve()
+def _resolve_data_root() -> Path:
+    """
+    Resolve persistent app data root.
+
+    - Source run: project root (existing behavior).
+    - Frozen run (PyInstaller): directory beside executable, so DB survives restarts.
+    """
+    env_override = None
+    raw = os.environ.get("GAMETRACKER_DATA_DIR", "").strip()
+    if raw:
+        env_override = Path(raw).expanduser().resolve()
+    if env_override:
+        return env_override
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).parent.parent.resolve()
+
+
+# Store data in persistent app directory
+SCRIPT_DIR = _resolve_data_root()
 TRACKING_FILE = SCRIPT_DIR / "process_tracking.json"
 LIBRARY_FILE = SCRIPT_DIR / "game_library.json"
 CONFIG_FILE = SCRIPT_DIR / "config.json"

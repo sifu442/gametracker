@@ -31,7 +31,7 @@ def main():
     # Set JetBrains Mono font for the entire application
     font = QFont("Inter", 10)
     app.setFont(font)
-    app_icon = Path(__file__).parent / "ui" / "assets" / "gamepad.svg"
+    app_icon = Path(__file__).parent / "ui" / "assets" / "halo.svg"
     app.setWindowIcon(QIcon(str(app_icon)))
 
     engine = QQmlApplicationEngine()
