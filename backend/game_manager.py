@@ -24,6 +24,16 @@ class GameManager:
         self.load_library()
         self.load_tracking()
         self.load_emulators()
+        sync_stats = self.sync_pcsx2_playtime_from_dat() or {}
+        print(
+            "[PCSX2] startup playtime sync "
+            f"updated={int(sync_stats.get('updated', 0))} "
+            f"scanned={int(sync_stats.get('scanned', 0))} "
+            f"no_serial={int(sync_stats.get('no_serial', 0))} "
+            f"no_dat={int(sync_stats.get('no_dat', 0))} "
+            f"no_match={int(sync_stats.get('no_match', 0))}",
+            flush=True,
+        )
         self.migrate_cover_paths()
 
     def _dataset_key(self, filepath):
@@ -122,6 +132,7 @@ GameManager.get_emulator = gm_emulators.get_emulator
 GameManager.get_all_emulators = gm_emulators.get_all_emulators
 GameManager.scan_emulated_games = gm_emulators.scan_emulated_games
 GameManager.get_emulator_playtime_seconds = gm_emulators.get_emulator_playtime_seconds
+GameManager.sync_pcsx2_playtime_from_dat = gm_emulators.sync_pcsx2_playtime_from_dat
 
 GameManager._get_heroic_installed_path = gm_sources._get_heroic_installed_path
 GameManager.get_heroic_legendary_config_dir = gm_sources.get_heroic_legendary_config_dir

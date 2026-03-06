@@ -122,6 +122,135 @@ def get_all_emulators(self):
     return self.emulators_data
 
 
+def _resolve_emulator_base_dir(emulator):
+    exe_path = ""
+    if IS_WINDOWS and emulator.get("exe_path_windows"):
+        exe_path = emulator.get("exe_path_windows")
+    if IS_LINUX and emulator.get("exe_path_linux"):
+        exe_path = emulator.get("exe_path_linux")
+    exe_paths = emulator.get("exe_paths")
+    if isinstance(exe_paths, dict):
+        launch_type = (emulator.get("launch_type") or "executable").strip().lower()
+        if IS_WINDOWS:
+            launch_type = (emulator.get("launch_type_windows") or launch_type).strip().lower()
+        if IS_LINUX:
+            launch_type = (emulator.get("launch_type_linux") or launch_type).strip().lower()
+        if launch_type == "exe":
+            launch_type = "executable"
+        if not exe_path:
+            exe_path = exe_paths.get(launch_type, "")
+        if not exe_path:
+            for _, val in exe_paths.items():
+                if val:
+                    exe_path = val
+                    break
+    elif isinstance(exe_paths, str):
+        exe_path = exe_paths
+    if not exe_path:
+        exe_path = emulator.get("exe_path") or ""
+    if not exe_path:
+        return None
+    exe_path = Path(fix_path_str(exe_path))
+    if not exe_path.is_absolute():
+        exe_path = SCRIPT_DIR / exe_path
+    return exe_path.parent
+
+
+def _read_playtime_dat(base_dir):
+    candidates = [
+        base_dir / "inis" / "playtime.dat",
+        base_dir / "ini" / "playtime.dat",
+    ]
+    playtime_file = None
+    for candidate in candidates:
+        if candidate.exists():
+            playtime_file = candidate
+            break
+    if not playtime_file:
+        return {}
+    serial_seconds = {}
+    try:
+        with open(playtime_file, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 2:
+                    continue
+                serial = str(parts[0] or "").strip().upper()
+                if not serial:
+                    continue
+                try:
+                    serial_seconds[serial] = int(float(parts[1]))
+                except Exception:
+                    continue
+    except Exception:
+        return {}
+    return serial_seconds
+
+
+def sync_pcsx2_playtime_from_dat(self):
+    """
+    Copy PCSX2 playtime.dat values into library playtime on startup.
+    Only increases stored playtime; never decreases.
+    """
+    changed = False
+    updated_count = 0
+    scanned_count = 0
+    no_serial_count = 0
+    no_dat_count = 0
+    no_match_count = 0
+    serial_map_by_emulator = {}
+
+    for game_data in self.library_data.values():
+        if not isinstance(game_data, dict):
+            continue
+        if not bool(game_data.get("is_emulated")):
+            continue
+        emulator_id = (game_data.get("emulator_id") or "").strip()
+        serial = (game_data.get("serial") or "").strip().upper()
+        if not emulator_id:
+            continue
+
+        emulator = self.emulators_data.get(emulator_id) or {}
+        emulator_name = str(emulator.get("name") or "").lower()
+        if "pcsx2" not in emulator_id.lower() and "pcsx2" not in emulator_name:
+            continue
+        scanned_count += 1
+        if not serial:
+            no_serial_count += 1
+            continue
+
+        if emulator_id not in serial_map_by_emulator:
+            base_dir = _resolve_emulator_base_dir(emulator)
+            serial_map_by_emulator[emulator_id] = _read_playtime_dat(base_dir) if base_dir else {}
+            if not serial_map_by_emulator[emulator_id]:
+                no_dat_count += 1
+
+        serial_seconds = serial_map_by_emulator.get(emulator_id) or {}
+        seconds = int(serial_seconds.get(serial, 0) or 0)
+        if seconds <= 0:
+            no_match_count += 1
+            continue
+        minutes = round(seconds / 60.0, 2)
+        try:
+            current_minutes = float(game_data.get("playtime", 0) or 0)
+        except Exception:
+            current_minutes = 0.0
+        if minutes > current_minutes:
+            game_data["playtime"] = minutes
+            changed = True
+            updated_count += 1
+
+    if changed:
+        self.save_library()
+    return {
+        "updated": updated_count,
+        "scanned": scanned_count,
+        "no_serial": no_serial_count,
+        "no_dat": no_dat_count,
+        "no_match": no_match_count,
+    }
+
+
 def scan_emulated_games(self):
     """
     Scan emulator ROM directories and add new emulated games.
@@ -291,61 +420,15 @@ def get_emulator_playtime_seconds(self, emulator_id, serial):
     if not emulator_id or not serial:
         return 0
     emulator = self.emulators_data.get(emulator_id) or {}
-    exe_path = ""
-    if IS_WINDOWS and emulator.get("exe_path_windows"):
-        exe_path = emulator.get("exe_path_windows")
-    if IS_LINUX and emulator.get("exe_path_linux"):
-        exe_path = emulator.get("exe_path_linux")
-    exe_paths = emulator.get("exe_paths")
-    if isinstance(exe_paths, dict):
-        launch_type = (emulator.get("launch_type") or "executable").strip().lower()
-        if IS_WINDOWS:
-            launch_type = (emulator.get("launch_type_windows") or launch_type).strip().lower()
-        if IS_LINUX:
-            launch_type = (emulator.get("launch_type_linux") or launch_type).strip().lower()
-        if launch_type == "exe":
-            launch_type = "executable"
-        if not exe_path:
-            exe_path = exe_paths.get(launch_type, "")
-        if not exe_path:
-            for _, val in exe_paths.items():
-                if val:
-                    exe_path = val
-                    break
-    elif isinstance(exe_paths, str):
-        exe_path = exe_paths
-    if not exe_path:
-        exe_path = emulator.get("exe_path") or ""
-    if not exe_path:
+    base_dir = _resolve_emulator_base_dir(emulator)
+    if not base_dir:
         return _stored_seconds_fallback()
-    exe_path = Path(fix_path_str(exe_path))
-    if not exe_path.is_absolute():
-        exe_path = SCRIPT_DIR / exe_path
-    base_dir = exe_path.parent
-    candidates = [
-        base_dir / "inis" / "playtime.dat",
-        base_dir / "ini" / "playtime.dat",
-    ]
-    playtime_file = None
-    for candidate in candidates:
-        if candidate.exists():
-            playtime_file = candidate
-            break
-    if not playtime_file:
-        return _stored_seconds_fallback()
+    serial_map = _read_playtime_dat(base_dir)
     try:
-        with open(playtime_file, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) < 2:
-                    continue
-                if parts[0].upper() == serial.upper():
-                    try:
-                        seconds = int(float(parts[1]))
-                        _persist_seconds_to_library(seconds)
-                        return seconds
-                    except Exception:
-                        return _stored_seconds_fallback()
+        seconds = int(serial_map.get(serial.upper(), 0) or 0)
+        if seconds > 0:
+            _persist_seconds_to_library(seconds)
+            return seconds
     except Exception:
         return _stored_seconds_fallback()
     return _stored_seconds_fallback()
