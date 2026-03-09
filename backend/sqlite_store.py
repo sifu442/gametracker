@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 
@@ -15,6 +16,11 @@ class SQLiteStore:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.revisions_dir = self.db_path.parent / "db_revisions"
+        self.revisions_dir.mkdir(parents=True, exist_ok=True)
+        self._last_revision_ts = 0.0
+        self._revision_interval_seconds = 300  # keep one snapshot at most every 5 minutes
+        self._revision_keep = 100
         self._init_db()
         self._migrate_kv_json_if_present()
 
@@ -166,9 +172,39 @@ class SQLiteStore:
                 else:
                     return False
                 conn.commit()
+                self._maybe_create_revision(conn)
             return True
         except Exception:
             return False
+
+    def _maybe_create_revision(self, conn):
+        now = time.time()
+        if (now - self._last_revision_ts) < self._revision_interval_seconds:
+            return
+        self._last_revision_ts = now
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(now))
+        revision_path = self.revisions_dir / f"{self.db_path.stem}_{stamp}.sqlite"
+        try:
+            with sqlite3.connect(str(revision_path)) as dst:
+                conn.backup(dst)
+        except Exception:
+            return
+        self._prune_old_revisions()
+
+    def _prune_old_revisions(self):
+        try:
+            snapshots = sorted(
+                self.revisions_dir.glob(f"{self.db_path.stem}_*.sqlite"),
+                key=lambda p: p.stat().st_mtime,
+            )
+        except Exception:
+            return
+        overflow = max(0, len(snapshots) - int(self._revision_keep))
+        for path in snapshots[:overflow]:
+            try:
+                path.unlink()
+            except Exception:
+                continue
 
     def _read_library(self, default):
         out = {}
@@ -331,4 +367,3 @@ class SQLiteStore:
                     json.dumps(payload, ensure_ascii=False),
                 ),
             )
-

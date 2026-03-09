@@ -412,11 +412,6 @@ def get_emulator_playtime_seconds(self, emulator_id, serial):
             return max(0, mins * 60)
         return 0
 
-    def _persist_seconds_to_library(seconds):
-        # Playtime in library JSON is treated as immutable metadata.
-        # Runtime values should be read from tracker/state sources instead.
-        return
-
     if not emulator_id or not serial:
         return 0
     emulator = self.emulators_data.get(emulator_id) or {}
@@ -427,7 +422,6 @@ def get_emulator_playtime_seconds(self, emulator_id, serial):
     try:
         seconds = int(serial_map.get(serial.upper(), 0) or 0)
         if seconds > 0:
-            _persist_seconds_to_library(seconds)
             return seconds
     except Exception:
         return _stored_seconds_fallback()

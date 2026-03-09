@@ -100,9 +100,24 @@ def scan_heroic_legendary(self):
 
         existing_id = None
         for game_id, game_data in self.library_data.items():
-            if game_data.get("legendary_app_name") == app_name:
+            if game_data.get("legendary_app_name") == app_name or game_data.get("heroic_app_name") == app_name:
                 existing_id = game_id
                 break
+        if not existing_id:
+            # Fallback match for legacy/manual entries to avoid creating duplicates
+            # that appear as "playtime reset to 0".
+            for game_id, game_data in self.library_data.items():
+                if not isinstance(game_data, dict):
+                    continue
+                source = str(game_data.get("source") or "").strip().lower()
+                if source not in ("epic", "heroic"):
+                    continue
+                if install_path and str(game_data.get("install_path") or "").strip() == install_path:
+                    existing_id = game_id
+                    break
+                if (str(game_data.get("name") or "").strip().lower() == str(name).strip().lower()):
+                    existing_id = game_id
+                    break
         if existing_id:
             existing = self.library_data.get(existing_id)
             changed = False
@@ -117,6 +132,9 @@ def scan_heroic_legendary(self):
                 changed = True
             if existing.get("heroic_app_name") != app_name:
                 existing["heroic_app_name"] = app_name
+                changed = True
+            if existing.get("source") != "epic":
+                existing["source"] = "epic"
                 changed = True
             old_process_name = str(existing.get("process_name") or "").strip()
             if process_name_hint and (
@@ -137,8 +155,32 @@ def scan_heroic_legendary(self):
             continue
 
         game_id = f"epic_{app_name}".replace(" ", "_").lower()
-        if game_id in self.library_data:
-            skipped += 1
+        if game_id in self.library_data and isinstance(self.library_data.get(game_id), dict):
+            # Merge into existing key instead of skipping, preserving playtime/history.
+            existing = self.library_data.get(game_id)
+            changed = False
+            if existing.get("name") != name:
+                existing["name"] = name
+                changed = True
+            if install_path and existing.get("install_path") != install_path:
+                existing["install_path"] = install_path
+                changed = True
+            if existing.get("legendary_app_name") != app_name:
+                existing["legendary_app_name"] = app_name
+                changed = True
+            if existing.get("heroic_app_name") != app_name:
+                existing["heroic_app_name"] = app_name
+                changed = True
+            if existing.get("source") != "epic":
+                existing["source"] = "epic"
+                changed = True
+            if existing.get("installed") is not True:
+                existing["installed"] = True
+                changed = True
+            if changed:
+                updated += 1
+            else:
+                skipped += 1
             continue
 
         self.library_data[game_id] = {
@@ -403,7 +445,7 @@ def scan_riot_games(self):
     installs_file = root / "RiotClientInstalls.json"
     data = self.load_json(installs_file, {})
     if not isinstance(data, dict):
-        return 0, 0, 0
+        data = {}
 
     # Non-game keys that can appear in RiotClientInstalls.json
     non_game_keys = {"associated_client", "patchlines", "riot client", "riot_client"}
@@ -421,24 +463,82 @@ def scan_riot_games(self):
             del self.library_data[gid]
             removed += 1
 
+    def _parse_yaml_scalar(path_obj, key):
+        try:
+            with open(path_obj, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line.startswith(f"{key}:"):
+                        continue
+                    value = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    return value
+        except Exception:
+            return ""
+        return ""
+
+    riot_entries = []
     for product_id, meta in data.items():
         pid = str(product_id or "").strip()
         pid_l = pid.lower()
         if not pid or pid_l in non_game_keys:
-            skipped += 1
             continue
         if not isinstance(meta, dict):
-            skipped += 1
             continue
 
         # Skip internal/metadata-only entries
         if any(k in meta for k in ("associated_client", "patchlines")):
-            skipped += 1
             continue
 
         # Product IDs must look like actual launchable products (e.g. valorant.live)
         if ".live" not in pid_l:
             continue
+        riot_entries.append((pid, meta))
+
+    # Fallback path for current Riot layout where installs.json has no per-game entries.
+    if not riot_entries:
+        associated_client = data.get("associated_client") if isinstance(data.get("associated_client"), dict) else {}
+        meta_root = root / "Metadata"
+        if meta_root.exists():
+            display_names = {
+                "valorant.live": "VALORANT",
+                "league_of_legends.live": "League of Legends",
+                "bacon.live": "League of Legends",
+                "lion.live": "Teamfight Tactics",
+            }
+            for entry_dir in meta_root.iterdir():
+                if not entry_dir.is_dir():
+                    continue
+                pid = str(entry_dir.name or "").strip()
+                pid_l = pid.lower()
+                if not pid or pid_l in non_game_keys or ".live" not in pid_l:
+                    continue
+
+                meta = {}
+                yaml_path = entry_dir / f"{pid}.product_settings.yaml"
+                if yaml_path.exists():
+                    install_full = _parse_yaml_scalar(yaml_path, "product_install_full_path")
+                    install_root = _parse_yaml_scalar(yaml_path, "product_install_root")
+                    if install_full:
+                        meta["install_path"] = install_full
+                    elif install_root:
+                        meta["install_path"] = install_root
+
+                if not meta.get("install_path"):
+                    token = pid_l.split(".", 1)[0]
+                    for install_key in associated_client.keys():
+                        key_path = str(install_key or "")
+                        if token and token in key_path.lower():
+                            meta["install_path"] = key_path
+                            break
+
+                if not meta.get("install_path"):
+                    continue
+                meta["product_name"] = display_names.get(pid_l, pid.replace(".live", "").replace("_", " ").title())
+                riot_entries.append((pid, meta))
+
+    for product_id, meta in riot_entries:
+        pid = str(product_id or "").strip()
+        pid_l = pid.lower()
 
         name = meta.get("product_name") or pid
         install_path = (
@@ -454,6 +554,22 @@ def scan_riot_games(self):
         install_path = canonicalize_path(fix_path_str(install_path)) if install_path else install_path
         existing_id = pid.replace(" ", "_").lower()
         existing = self.library_data.get(existing_id)
+        if not existing:
+            # Fallback match for legacy/manual Riot entries.
+            for game_id, game_data in self.library_data.items():
+                if not isinstance(game_data, dict):
+                    continue
+                source = str(game_data.get("source") or "").strip().lower()
+                if source != "riot":
+                    continue
+                if str(game_data.get("riot_product_id") or "").strip() == pid:
+                    existing = game_data
+                    existing_id = game_id
+                    break
+                if install_path and str(game_data.get("install_path") or "").strip() == install_path:
+                    existing = game_data
+                    existing_id = game_id
+                    break
         if existing:
             changed = False
             if existing.get("name") != name:
@@ -464,6 +580,9 @@ def scan_riot_games(self):
                 changed = True
             if existing.get("riot_product_id") != pid:
                 existing["riot_product_id"] = pid
+                changed = True
+            if existing.get("source") != "riot":
+                existing["source"] = "riot"
                 changed = True
             if existing.get("installed") is not True:
                 existing["installed"] = True

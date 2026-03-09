@@ -38,6 +38,16 @@ class LibraryControllerOps:
         ).strip("_") or "Game"
         return str(Path.home() / ".local" / "share" / "gametracker" / "Prefixes" / safe_name)
 
+    def _parse_playtime_minutes(self, value, default_value=0):
+        text = str(value or "").strip()
+        if text == "":
+            return float(default_value or 0)
+        try:
+            minutes = float(text)
+        except Exception:
+            return float(default_value or 0)
+        return max(0.0, minutes)
+
     def remove_selected(self):
         c = self._c
         if not c._selected_game_id:
@@ -174,8 +184,7 @@ class LibraryControllerOps:
             "platform": (platform or ("Windows" if IS_WINDOWS else "Linux")).strip(),
             "notes": notes or "",
             "serial": (serial or "").strip(),
-            # Playtime is read-only in metadata flows; runtime trackers own this value.
-            "playtime": 0,
+            "playtime": self._parse_playtime_minutes(playtime_minutes, 0),
             "compat_tool": compat_tool or None,
             "proton_path": canonicalize_path((proton_path or "").strip()) or None,
             "added_date": time.time(),
@@ -273,11 +282,10 @@ class LibraryControllerOps:
         new_entry["platform"] = (platform or "").strip()
         new_entry["notes"] = notes or ""
         new_entry["serial"] = (serial or "").strip()
-        # Playtime is read-only in metadata flows; keep existing value.
-        external_playtime = bool(old_data.get("is_emulated")) or (
-            (old_data.get("source") or "").strip().lower() == "steam"
+        new_entry["playtime"] = self._parse_playtime_minutes(
+            playtime_minutes,
+            old_data.get("playtime", 0),
         )
-        new_entry["playtime"] = int(old_data.get("playtime") or 0)
         new_entry["install_location"] = canonicalize_path((install_location or "").strip())
         resolved_wine_prefix = canonicalize_path((wine_prefix or "").strip()) or None
         if IS_LINUX and not old_data.get("is_emulated") and not resolved_wine_prefix:
