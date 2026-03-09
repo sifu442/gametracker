@@ -35,6 +35,8 @@ Dialog {
         addExeLinuxField.text = ""
         addDetails.exePathField.text = ""
         addDetails.winePrefixField.text = ""
+        addDetails.wineEsyncCheck.checked = false
+        addDetails.wineFsyncCheck.checked = false
         addDetails.windowsOnlyCheck.checked = false
         addDetails.installedCheck.checked = false
         addDetails.coverField.text = ""
@@ -66,6 +68,8 @@ Dialog {
             "",
             addDetails.winePrefixField.text,
             addDetails.wineDllOverridesField.text,
+            addDetails.wineEsyncCheck.checked,
+            addDetails.wineFsyncCheck.checked,
             addDetails.windowsOnlyCheck.checked,
             addDetails.installedCheck.checked,
             addDetails.coverField.text,

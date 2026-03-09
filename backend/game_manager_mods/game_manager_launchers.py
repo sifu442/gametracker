@@ -3,7 +3,33 @@ import shutil
 import re
 from pathlib import Path
 
-from core.constants import IS_WINDOWS
+from core.constants import IS_WINDOWS, IS_LINUX
+
+
+def _find_heroic_executable():
+    heroic_cmd = shutil.which("heroic")
+    if heroic_cmd:
+        return heroic_cmd
+    if IS_WINDOWS:
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        candidates = []
+        if local_appdata:
+            candidates.extend([
+                Path(local_appdata) / "Programs" / "heroic" / "Heroic.exe",
+                Path(local_appdata) / "Programs" / "Heroic" / "Heroic.exe",
+                Path(local_appdata) / "Programs" / "heroic" / "heroic.exe",
+                Path(local_appdata) / "Programs" / "Heroic" / "heroic.exe",
+            ])
+        candidates.extend([
+            Path("C:/Program Files/Heroic/Heroic.exe"),
+            Path("C:/Program Files/Heroic/heroic.exe"),
+            Path("C:/Program Files (x86)/Heroic/Heroic.exe"),
+            Path("C:/Program Files (x86)/Heroic/heroic.exe"),
+        ])
+        for c in candidates:
+            if c.exists():
+                return str(c)
+    return ""
 
 
 def get_legendary_launch_command(self, app_name):
@@ -33,6 +59,51 @@ def get_legendary_launch_command(self, app_name):
     if not legendary_cmd:
         return None
     return [legendary_cmd, "launch", app_name]
+
+
+def get_heroic_launch_command(self, app_name):
+    if not app_name:
+        return None
+    app_name = str(app_name).strip()
+    if not app_name:
+        return None
+    uri = f"heroic://launch/{app_name}"
+    heroic_cmd = _find_heroic_executable()
+    if IS_WINDOWS:
+        if heroic_cmd:
+            # Keep Heroic in background while starting the game.
+            return [heroic_cmd, "--no-gui", "--uri", uri]
+        # Fallback to URI handler; /min helps keep the launcher from popping foreground.
+        return ["cmd", "/c", "start", "", "/min", uri]
+    if IS_LINUX:
+        if heroic_cmd:
+            # Direct CLI launch is more reliable than xdg-open and keeps UI minimized.
+            return [heroic_cmd, "--no-gui", "--uri", uri]
+        flatpak_cmd = shutil.which("flatpak")
+        if flatpak_cmd:
+            return [
+                flatpak_cmd,
+                "run",
+                "--command=heroic",
+                "com.heroicgameslauncher.hgl",
+                "--no-gui",
+                "--uri",
+                uri,
+            ]
+    opener = shutil.which("xdg-open")
+    if opener:
+        return [opener, uri]
+    return None
+
+
+def get_epic_launch_command(self, app_name):
+    heroic_cmd = self.get_heroic_launch_command(app_name)
+    if heroic_cmd:
+        return "heroic", heroic_cmd
+    legendary_cmd = self.get_legendary_launch_command(app_name)
+    if legendary_cmd:
+        return "legendary", legendary_cmd
+    return "", None
 
 
 def get_steam_launch_command(self, app_id):

@@ -119,6 +119,8 @@ class LibraryControllerOps:
         install_location,
         wine_prefix,
         wine_dll_overrides,
+        wine_esync,
+        wine_fsync,
         windows_only,
         installed,
         cover_path,
@@ -164,6 +166,8 @@ class LibraryControllerOps:
             "install_location": canonicalize_path((install_location or "").strip()),
             "wine_prefix": resolved_wine_prefix,
             "wine_dll_overrides": (wine_dll_overrides or "").strip() or None,
+            "wine_esync": bool(wine_esync),
+            "wine_fsync": bool(wine_fsync),
             "windows_only": bool(windows_only),
             "installed": bool(installed),
             "genre": (genre or "").strip(),
@@ -241,6 +245,8 @@ class LibraryControllerOps:
         install_location,
         wine_prefix,
         wine_dll_overrides,
+        wine_esync,
+        wine_fsync,
         windows_only,
         installed,
         cover_path,
@@ -278,6 +284,8 @@ class LibraryControllerOps:
             resolved_wine_prefix = canonicalize_path(self._default_linux_wine_prefix(new_name))
         new_entry["wine_prefix"] = resolved_wine_prefix
         new_entry["wine_dll_overrides"] = (wine_dll_overrides or "").strip() or None
+        new_entry["wine_esync"] = bool(wine_esync)
+        new_entry["wine_fsync"] = bool(wine_fsync)
         new_entry["windows_only"] = bool(windows_only)
         new_entry["installed"] = bool(installed)
         new_entry["links"] = c._normalize_links_json(links_json)

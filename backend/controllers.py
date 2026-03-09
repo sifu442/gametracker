@@ -324,6 +324,10 @@ class AppController(QObject):
         return self._viewmodel_ops.selected_game_str("platform")
 
     @pyqtProperty(str, notify=libraryChanged)
+    def selectedGameSource(self):
+        return self._viewmodel_ops.selected_game_str("source")
+
+    @pyqtProperty(str, notify=libraryChanged)
     def selectedGameNotes(self):
         return self._viewmodel_ops.selected_game_str("notes")
 
@@ -452,6 +456,14 @@ class AppController(QObject):
     @pyqtProperty(str, notify=libraryChanged)
     def selectedGameWineDllOverrides(self):
         return self._viewmodel_ops.selected_game_str("wine_dll_overrides")
+
+    @pyqtProperty(bool, notify=libraryChanged)
+    def selectedGameWineEsync(self):
+        return self._viewmodel_ops.selected_game_bool("wine_esync", False)
+
+    @pyqtProperty(bool, notify=libraryChanged)
+    def selectedGameWineFsync(self):
+        return self._viewmodel_ops.selected_game_bool("wine_fsync", False)
 
     @pyqtProperty(bool, notify=libraryChanged)
     def selectedGameWindowsOnly(self):
@@ -695,6 +707,8 @@ class AppController(QObject):
         str,
         bool,
         bool,
+        bool,
+        bool,
         str,
         str,
         str,
@@ -720,6 +734,8 @@ class AppController(QObject):
         install_location,
         wine_prefix,
         wine_dll_overrides,
+        wine_esync,
+        wine_fsync,
         windows_only,
         installed,
         cover_path,
@@ -746,6 +762,8 @@ class AppController(QObject):
             install_location,
             wine_prefix,
             wine_dll_overrides,
+            wine_esync,
+            wine_fsync,
             windows_only,
             installed,
             cover_path,
@@ -775,6 +793,8 @@ class AppController(QObject):
         str,
         bool,
         bool,
+        bool,
+        bool,
         str,
         str,
         str,
@@ -797,6 +817,8 @@ class AppController(QObject):
         install_location,
         wine_prefix,
         wine_dll_overrides,
+        wine_esync,
+        wine_fsync,
         windows_only,
         installed,
         cover_path,
@@ -820,6 +842,8 @@ class AppController(QObject):
             install_location,
             wine_prefix,
             wine_dll_overrides,
+            wine_esync,
+            wine_fsync,
             windows_only,
             installed,
             cover_path,

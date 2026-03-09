@@ -86,6 +86,17 @@ def scan_heroic_legendary(self):
         name = entry.get("title") or entry.get("name") or entry.get("gameTitle") or app_name
         install_path = entry.get("install_path") or entry.get("installPath") or entry.get("install") or ""
         install_path = canonicalize_path(fix_path_str(install_path)) if install_path else install_path
+        exe_hint = (
+            entry.get("executable")
+            or entry.get("launchExecutable")
+            or entry.get("launch_executable")
+            or entry.get("exe")
+            or ""
+        )
+        exe_hint = str(exe_hint or "").strip()
+        process_name_hint = Path(exe_hint).stem.strip() if exe_hint else ""
+        if not process_name_hint:
+            process_name_hint = name or app_name
 
         existing_id = None
         for game_id, game_data in self.library_data.items():
@@ -104,6 +115,18 @@ def scan_heroic_legendary(self):
             if existing.get("legendary_app_name") != app_name:
                 existing["legendary_app_name"] = app_name
                 changed = True
+            if existing.get("heroic_app_name") != app_name:
+                existing["heroic_app_name"] = app_name
+                changed = True
+            old_process_name = str(existing.get("process_name") or "").strip()
+            if process_name_hint and (
+                not old_process_name
+                or old_process_name == str(existing.get("name") or "").strip()
+                or old_process_name == str(app_name).strip()
+            ):
+                if old_process_name != process_name_hint:
+                    existing["process_name"] = process_name_hint
+                    changed = True
             if existing.get("installed") is not True:
                 existing["installed"] = True
                 changed = True
@@ -132,8 +155,9 @@ def scan_heroic_legendary(self):
             "hero": "",
             "is_emulated": False,
             "legendary_app_name": app_name,
+            "heroic_app_name": app_name,
             "install_path": install_path,
-            "process_name": name or app_name,
+            "process_name": process_name_hint,
             "source": "epic",
             "installed": True,
         }

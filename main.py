@@ -18,6 +18,7 @@ from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 from backend.game_manager import GameManager
 from backend.controllers import AppController
+from utils.helpers import debug_log
 
 
 SINGLE_INSTANCE_SERVER = "GameTracker.SingleInstance"
@@ -52,6 +53,7 @@ def _send_to_running_instance(payload: dict) -> bool:
 
 def main():
     """Application entry point"""
+    debug_log(f"[debug] main entry argv={sys.argv!r}")
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--launch-game-id", dest="launch_game_id", default="")
     parser.add_argument("--launch-game-id-b64", dest="launch_game_id_b64", default="")
@@ -61,10 +63,13 @@ def main():
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Fusion")
     app = QApplication([sys.argv[0], *qt_argv])
     startup_payload = _build_startup_payload(args)
+    debug_log(f"[debug] startup payload={startup_payload!r}")
 
     # Single-instance handoff: if another instance is running, forward request and quit.
     if _send_to_running_instance(startup_payload):
+        debug_log("[debug] handoff to existing instance succeeded; exiting current process")
         return
+    debug_log("[debug] no existing instance detected; starting primary instance")
 
     # Set JetBrains Mono font for the entire application
     font = QFont("Inter", 10)

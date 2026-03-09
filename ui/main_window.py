@@ -298,6 +298,11 @@ class GameLibraryTracker(QMainWindow):
             self.details_container.show()
 
         self.refresh_library()
+
+    def _with_linux_game_performance(self, cmd):
+        if IS_LINUX and cmd and cmd[0] != "game-performance":
+            return ["game-performance"] + cmd
+        return cmd
     
     def refresh_library(self):
         """Refresh the library display"""
@@ -840,6 +845,8 @@ class GameLibraryTracker(QMainWindow):
                         )
                         return
                     cmd = [wine_cmd, str(exe_file)]
+                    cmd = self._with_linux_game_performance(cmd)
+                    print(f"[launch][legacy] wine cmd={cmd}", flush=True)
                     env = None
                     if wine_prefix:
                         env = os.environ.copy()
@@ -858,6 +865,8 @@ class GameLibraryTracker(QMainWindow):
                     proton_bin = Path(proton_path) / "proton"
                     if proton_bin.exists():
                         cmd = [str(proton_bin), "run", str(exe_file)]
+                        cmd = self._with_linux_game_performance(cmd)
+                        print(f"[launch][legacy] proton cmd={cmd}", flush=True)
                         env = None
                         if wine_prefix:
                             env = os.environ.copy()
@@ -873,7 +882,7 @@ class GameLibraryTracker(QMainWindow):
                         )
                         return
                 else:
-                    proc = subprocess.Popen([str(exe_file)])
+                    proc = subprocess.Popen(self._with_linux_game_performance([str(exe_file)]))
                     pid = proc.pid
                     start_time = psutil.Process(pid).create_time()
             

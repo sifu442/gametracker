@@ -43,6 +43,8 @@ Dialog {
         }
         editDetails.winePrefixField.text = backendRef.selectedGameWinePrefix || defaultPrefix
         editDetails.wineDllOverridesField.text = backendRef.selectedGameWineDllOverrides
+        editDetails.wineEsyncCheck.checked = backendRef.selectedGameWineEsync
+        editDetails.wineFsyncCheck.checked = backendRef.selectedGameWineFsync
         editDetails.windowsOnlyCheck.checked = backendRef.selectedGameWindowsOnly
         editDetails.installedCheck.checked = backendRef.selectedGameInstalledFlag
         editDetails.coverField.text = backendRef.selectedGameCover
@@ -77,6 +79,8 @@ Dialog {
             "",
             editDetails.winePrefixField.text,
             editDetails.wineDllOverridesField.text,
+            editDetails.wineEsyncCheck.checked,
+            editDetails.wineFsyncCheck.checked,
             editDetails.windowsOnlyCheck.checked,
             editDetails.installedCheck.checked,
             editDetails.coverField.text,
@@ -212,6 +216,8 @@ Dialog {
                             "",
                             editDetails.winePrefixField.text,
                             editDetails.wineDllOverridesField.text,
+                            editDetails.wineEsyncCheck.checked,
+                            editDetails.wineFsyncCheck.checked,
                             editDetails.windowsOnlyCheck.checked,
                             editDetails.installedCheck.checked,
                             editDetails.coverField.text,

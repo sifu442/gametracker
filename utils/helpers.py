@@ -2,8 +2,10 @@
 Utility functions for Game Library Tracker
 """
 import json
+import os
 import platform
 import re
+from datetime import datetime
 from pathlib import Path
 
 
@@ -50,6 +52,58 @@ def canonicalize_path(p):
     if path.startswith("/media/SSD"):
         return "D:" + path[len("/media/SSD"):]
     return path
+
+
+def debug_log(message):
+    """Append debug logs when GAMETRACKER_DEBUG=1 (or true/yes/on)."""
+    flag = str(os.environ.get("GAMETRACKER_DEBUG", "")).strip().lower()
+    if flag not in ("1", "true", "yes", "on"):
+        return
+    try:
+        preferred = str(os.environ.get("GAMETRACKER_DEBUG_FILE", "")).strip()
+        if preferred:
+            log_file = Path(preferred).expanduser()
+        else:
+            # Prefer project root when writable; fallback to user-local data dir.
+            root = Path(__file__).resolve().parent.parent
+            root_candidate = root / "launch_debug.log"
+            try:
+                root_candidate.parent.mkdir(parents=True, exist_ok=True)
+                with root_candidate.open("a", encoding="utf-8"):
+                    pass
+                log_file = root_candidate
+            except Exception:
+                data_dir = Path.home() / ".local" / "share" / "gametracker"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                log_file = data_dir / "launch_debug.log"
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{ts}] {message}\n")
+    except Exception:
+        pass
+
+
+def sanitized_subprocess_env(base_env=None):
+    """Return env with problematic app/runtime Python vars removed."""
+    env = dict(base_env if base_env is not None else os.environ)
+    for key in (
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTHONUSERBASE",
+        "PYTHONSTARTUP",
+        "PYTHONEXECUTABLE",
+        "PYTHONNOUSERSITE",
+    ):
+        env.pop(key, None)
+    return env
+
+
+def system_python_path_env(base_env=None):
+    """Env sanitized for system scripts that use /usr/bin/env python3."""
+    env = sanitized_subprocess_env(base_env)
+    env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+    return env
 
 
 def load_json(filepath, default=None):

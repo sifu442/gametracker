@@ -54,9 +54,14 @@ Item {
     property alias compatToolField: compatToolField
     property alias protonPathField: protonPathField
     property alias wineDllOverridesField: wineDllOverridesField
+    property alias wineEsyncCheck: wineEsyncCheck
+    property alias wineFsyncCheck: wineFsyncCheck
 
     property bool showInstalledLocation: false
     property var _dateTargetField: null
+    property bool _showWineCompatSettings: Qt.platform.os === "linux"
+        && !root.emulatedCheck.checked
+        && (!root.backend || (root.backend.selectedGameSource || "").toLowerCase() !== "epic")
 
     TextField { id: logoField; visible: false }
     TextField { id: coverField; visible: false }
@@ -508,7 +513,7 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: Qt.platform.os === "linux" && !root.emulatedCheck.checked
+                    visible: root._showWineCompatSettings
                     Text { text: "Wine Prefix"; color: "#d6d6d6" }
                     RowLayout {
                         Layout.fillWidth: true
@@ -522,7 +527,7 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: Qt.platform.os === "linux" && !root.emulatedCheck.checked
+                    visible: root._showWineCompatSettings
                     Text { text: "Wine/Proton"; color: "#d6d6d6" }
                     ComboBox {
                         id: compatCombo
@@ -542,7 +547,7 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: Qt.platform.os === "linux" && !root.emulatedCheck.checked
+                    visible: root._showWineCompatSettings
                     Text { text: "Wine DLL Overrides"; color: "#d6d6d6" }
                     TextField {
                         id: wineDllOverridesInput
@@ -551,6 +556,20 @@ Item {
                         text: wineDllOverridesField.text
                         onTextChanged: wineDllOverridesField.text = text
                     }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root._showWineCompatSettings
+                    Text { text: "Enable ESYNC"; color: "#d6d6d6" }
+                    CheckBox { id: wineEsyncCheck; Layout.alignment: Qt.AlignRight }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root._showWineCompatSettings
+                    Text { text: "Enable FSYNC"; color: "#d6d6d6" }
+                    CheckBox { id: wineFsyncCheck; Layout.alignment: Qt.AlignRight }
                 }
 
                 RowLayout {

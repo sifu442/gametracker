@@ -146,7 +146,9 @@ GameManager._get_riot_programdata_root = gm_sources._get_riot_programdata_root
 GameManager._get_riot_client_path = gm_sources._get_riot_client_path
 GameManager.scan_riot_games = gm_sources.scan_riot_games
 
+GameManager.get_heroic_launch_command = gm_launchers.get_heroic_launch_command
 GameManager.get_legendary_launch_command = gm_launchers.get_legendary_launch_command
+GameManager.get_epic_launch_command = gm_launchers.get_epic_launch_command
 GameManager.get_steam_launch_command = gm_launchers.get_steam_launch_command
 GameManager.get_steam_playtime_minutes = gm_launchers.get_steam_playtime_minutes
 

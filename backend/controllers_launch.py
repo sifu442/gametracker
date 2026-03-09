@@ -21,7 +21,7 @@ from core.constants import COVERS_DIR, HEROES_DIR, IS_LINUX, IS_WINDOWS, LOGOS_D
 from threads.process_monitor import ProcessMonitor
 from utils.emulator_launcher import EmulatorLauncher
 from utils.game_launcher import GameLauncher
-from utils.helpers import fix_path_str, resolve_user_path
+from utils.helpers import debug_log, fix_path_str, resolve_user_path, sanitized_subprocess_env, system_python_path_env
 
 if TYPE_CHECKING:
     from backend.controllers import AppController
@@ -37,54 +37,319 @@ class LaunchControllerOps:
         self._steam_probe_timer.timeout.connect(self._probe_steam_game_process)
         self._steam_probe_game_id = ""
         self._steam_probe_target = ""
+        self._steam_probe_targets = []
+        self._steam_probe_source = ""
+        self._steam_probe_install_path = ""
+        self._steam_probe_app_id = ""
+        self._steam_probe_started_at = 0.0
+        self._steam_probe_baseline_pids = set()
         self._steam_probe_deadline = 0.0
+        self._prev_power_profile = ""
+        self._power_profile_armed = False
+        self._power_restore_timer = QTimer()
+        self._power_restore_timer.setInterval(5000)
+        self._power_restore_timer.timeout.connect(self._maybe_restore_linux_power_profile)
+        self._pending_restore_process_name = ""
+        debug_log("[debug] launch controller initialized")
 
     def _norm(self, value):
         return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
 
+    def _dbg(self, message):
+        print(message, flush=True)
+        debug_log(message)
+
+    def _is_launcher_or_helper_process(self, proc_name, cmdline_l):
+        pname = str(proc_name or "").strip().lower()
+        if pname in (
+            "steam",
+            "steam.exe",
+            "steamwebhelper",
+            "steamwebhelper.exe",
+            "heroic",
+            "heroic.exe",
+            "heroicgameslauncher",
+            "legendary",
+            "legendary.exe",
+            "epicgameslauncher",
+            "epicgameslauncher.exe",
+            "epicwebhelper",
+            "epicwebhelper.exe",
+        ):
+            return True
+        return any(
+            token in str(cmdline_l or "")
+            for token in (
+                "heroicgameslauncher",
+                "com.heroicgameslauncher.hgl",
+                "heroic://",
+                "legendary launch",
+                "steamwebhelper",
+                "epicwebhelper",
+                "epicgameslauncher",
+            )
+        )
+
+    def _enable_linux_performance_profile(self):
+        if not IS_LINUX or self._power_profile_armed:
+            return
+        powerprofilesctl = shutil.which("powerprofilesctl")
+        if not powerprofilesctl:
+            self._dbg("[power] powerprofilesctl not found")
+            return
+        prev = ""
+        cmd_env = system_python_path_env()
+        try:
+            res = subprocess.run(
+                [powerprofilesctl, "get"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                env=cmd_env,
+            )
+            if res.returncode == 0:
+                prev = (res.stdout or "").strip()
+            else:
+                self._dbg(
+                    f"[power] get failed rc={res.returncode} stderr={(res.stderr or '').strip()}",
+                )
+        except Exception:
+            prev = ""
+            self._dbg("[power] get raised exception")
+        try:
+            res = subprocess.run(
+                [powerprofilesctl, "set", "performance"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                env=cmd_env,
+            )
+            if res.returncode == 0:
+                self._prev_power_profile = prev
+                self._power_profile_armed = True
+                verify = subprocess.run(
+                    [powerprofilesctl, "get"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    env=cmd_env,
+                )
+                current = (verify.stdout or "").strip() if verify.returncode == 0 else "<unknown>"
+                self._dbg(f"[power] set performance ok (prev='{prev}', current='{current}')")
+            else:
+                self._dbg(
+                    f"[power] set performance failed rc={res.returncode} "
+                    f"stdout={(res.stdout or '').strip()} stderr={(res.stderr or '').strip()}",
+                )
+        except Exception:
+            self._dbg("[power] set performance raised exception")
+
+    def _restore_linux_power_profile(self):
+        if not IS_LINUX or not self._power_profile_armed:
+            return
+        powerprofilesctl = shutil.which("powerprofilesctl")
+        if not powerprofilesctl:
+            self._prev_power_profile = ""
+            self._power_profile_armed = False
+            return
+        target = (self._prev_power_profile or "").strip().lower()
+        cmd_env = system_python_path_env()
+        try:
+            if target and target != "performance":
+                res = subprocess.run(
+                    [powerprofilesctl, "set", target],
+                    timeout=3,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=cmd_env,
+                )
+                if res.returncode == 0:
+                    self._dbg(f"[power] restored profile '{target}'")
+                else:
+                    self._dbg(f"[power] restore failed rc={res.returncode} target='{target}'")
+        except Exception:
+            self._dbg("[power] restore raised exception")
+        self._prev_power_profile = ""
+        self._power_profile_armed = False
+        self._pending_restore_process_name = ""
+        self._power_restore_timer.stop()
+
+    def _process_name_running(self, process_name):
+        target = str(process_name or "").strip().lower()
+        if not target:
+            return False
+        for proc in psutil.process_iter(["name", "exe", "cmdline"]):
+            try:
+                name = str(proc.info.get("name") or "").strip().lower()
+                exe = str(proc.info.get("exe") or "").strip().lower()
+                cmdline = " ".join(proc.info.get("cmdline") or []).lower()
+                if name == target:
+                    return True
+                if exe and Path(exe).stem.lower() == target:
+                    return True
+                if cmdline and (f"/{target}" in cmdline or f"\\{target}" in cmdline):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _maybe_restore_linux_power_profile(self):
+        if not self._power_profile_armed:
+            self._power_restore_timer.stop()
+            self._pending_restore_process_name = ""
+            return
+        if self._pending_restore_process_name and self._process_name_running(self._pending_restore_process_name):
+            return
+        self._restore_linux_power_profile()
+
     def _probe_steam_game_process(self):
         c = self._c
-        if not self._steam_probe_game_id or not self._steam_probe_target:
+        if not self._steam_probe_game_id:
             self._steam_probe_timer.stop()
             return
         if time.time() > self._steam_probe_deadline:
+            self._dbg(
+                f"[probe] timeout source={self._steam_probe_source} "
+                f"targets={self._steam_probe_targets or [self._steam_probe_target]}",
+            )
             self._steam_probe_timer.stop()
             self._steam_probe_game_id = ""
             self._steam_probe_target = ""
+            self._steam_probe_targets = []
+            self._steam_probe_source = ""
+            self._steam_probe_install_path = ""
+            self._steam_probe_app_id = ""
+            self._steam_probe_started_at = 0.0
+            self._steam_probe_baseline_pids = set()
             self._steam_probe_deadline = 0.0
             return
 
-        target = self._norm(self._steam_probe_target)
+        raw_targets = self._steam_probe_targets or ([self._steam_probe_target] if self._steam_probe_target else [])
+        targets = [self._norm(t) for t in raw_targets if str(t or "").strip()]
+        install_path_l = str(self._steam_probe_install_path or "").strip().lower()
+        app_id = str(self._steam_probe_app_id or "").strip()
         best = None
         best_ct = 0.0
+        fallback = None
+        fallback_ct = 0.0
         for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "create_time"]):
             try:
                 info = proc.info
+                pid = int(info.get("pid") or 0)
+                if pid <= 0 or pid == os.getpid():
+                    continue
                 pname = str(info.get("name") or "").lower()
-                if pname in ("steam", "steam.exe"):
+                if self._is_launcher_or_helper_process(pname, ""):
+                    continue
+                exe = str(info.get("exe") or "")
+                exe_name = Path(exe).name.lower() if exe else ""
+                if self._is_launcher_or_helper_process(exe_name, ""):
+                    continue
+                cmdline_list = info.get("cmdline") or []
+                cmdline = " ".join(cmdline_list)
+                cmdline_l = cmdline.lower()
+                if self._is_launcher_or_helper_process(pname, cmdline_l):
                     continue
                 hay = " ".join(
                     [
                         str(info.get("name") or ""),
-                        str(info.get("exe") or ""),
-                        " ".join(info.get("cmdline") or []),
+                        exe,
+                        cmdline,
                     ]
                 )
-                if target and target in self._norm(hay):
+                hay_norm = self._norm(hay)
+                if targets and any(t and t in hay_norm for t in targets):
                     ct = float(info.get("create_time") or 0.0)
                     if ct > best_ct:
                         best_ct = ct
-                        best = (int(info.get("pid") or 0), ct)
+                        best = (pid, ct)
+                    continue
+
+                # Fallback matching for Steam/Heroic entries where process_name is unreliable.
+                if pid in self._steam_probe_baseline_pids:
+                    continue
+                ct = float(info.get("create_time") or 0.0)
+                if ct < (self._steam_probe_started_at - 2.0):
+                    continue
+                hay_l = hay.lower()
+                candidate = False
+                if install_path_l and install_path_l in hay_l:
+                    candidate = True
+                if not candidate and app_id and app_id in hay_l:
+                    candidate = True
+                if candidate and ct > fallback_ct:
+                    fallback_ct = ct
+                    fallback = (pid, ct)
             except Exception:
                 continue
 
-        if best and best[0] > 0:
+        winner = best if best and best[0] > 0 else fallback
+        if winner and winner[0] > 0:
             self._steam_probe_timer.stop()
             gid = self._steam_probe_game_id
+            source = self._steam_probe_source
+            mode = "target" if winner == best else "fallback"
+            self._dbg(f"[probe] matched {mode} pid={winner[0]} source={source}")
             self._steam_probe_game_id = ""
             self._steam_probe_target = ""
+            self._steam_probe_targets = []
+            self._steam_probe_source = ""
+            self._steam_probe_install_path = ""
+            self._steam_probe_app_id = ""
+            self._steam_probe_started_at = 0.0
+            self._steam_probe_baseline_pids = set()
             self._steam_probe_deadline = 0.0
-            c._start_tracking(gid, best[0], best[1], None)
+            c._start_tracking(gid, winner[0], winner[1], None)
+
+    def _find_runtime_pid_for_game(self, game_data):
+        targets = [
+            str(game_data.get("process_name") or "").strip(),
+            str(game_data.get("legendary_app_name") or "").strip(),
+            str(game_data.get("heroic_app_name") or "").strip(),
+        ]
+        norm_targets = [self._norm(t) for t in targets if t]
+        install_path_l = str(game_data.get("install_path") or "").strip().lower()
+        steam_app_id = str(game_data.get("steam_app_id") or "").strip()
+        source = str(game_data.get("source") or "").strip().lower()
+        process_name = str(game_data.get("process_name") or "").strip().lower()
+
+        best_pid = 0
+        best_ct = 0.0
+        for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "create_time"]):
+            try:
+                info = proc.info
+                pid = int(info.get("pid") or 0)
+                if pid <= 0 or pid == os.getpid():
+                    continue
+                pname = str(info.get("name") or "").lower()
+                exe = str(info.get("exe") or "")
+                cmdline = " ".join(info.get("cmdline") or [])
+                cmdline_l = cmdline.lower()
+                if self._is_launcher_or_helper_process(pname, cmdline_l):
+                    continue
+                hay = f"{pname} {exe} {cmdline}"
+                hay_norm = self._norm(hay)
+                hay_l = hay.lower()
+
+                matched = False
+                if install_path_l and install_path_l in hay_l:
+                    matched = True
+                elif process_name and (Path(exe).stem.lower() == process_name or pname == process_name):
+                    matched = True
+                elif steam_app_id and steam_app_id in hay_l:
+                    matched = True
+                elif source == "steam" and norm_targets and any(t and t in hay_norm for t in norm_targets):
+                    matched = True
+
+                if not matched:
+                    continue
+                ct = float(info.get("create_time") or 0.0)
+                if ct > best_ct:
+                    best_ct = ct
+                    best_pid = pid
+            except Exception:
+                continue
+        return best_pid, best_ct
 
     def get_exe_path_for_platform(self, game_data):
         exe_paths = game_data.get("exe_paths", {})
@@ -142,6 +407,7 @@ class LaunchControllerOps:
         c._current_proc = proc
         c._session_start = time.time()
         c._is_monitoring = True
+        self._enable_linux_performance_profile()
         c.playbackChanged.emit()
 
         c._monitor_thread = ProcessMonitor(pid, start_time)
@@ -326,9 +592,27 @@ class LaunchControllerOps:
         c = self._c
         if not c._is_monitoring:
             return
+
+        game_data = c._game_manager.get_game(c._current_game_id) if c._current_game_id else None
+        source = str((game_data or {}).get("source") or "").strip().lower()
+        is_launcher_managed = source in ("steam", "epic") or bool(
+            (game_data or {}).get("legendary_app_name") or (game_data or {}).get("heroic_app_name")
+        )
+        if game_data and is_launcher_managed:
+            new_pid, new_start = self._find_runtime_pid_for_game(game_data)
+            if new_pid and new_pid != int(c._current_pid or 0):
+                self._dbg(f"[probe] reattach runtime pid={new_pid} source={source or 'launcher'}")
+                if c._session_start:
+                    elapsed = int(time.time() - c._session_start)
+                    process_name = game_data.get("process_name", "")
+                    if process_name and elapsed > 0:
+                        current_total = c._game_manager.get_total_playtime(process_name)
+                        c._game_manager.set_playtime(process_name, current_total + elapsed)
+                c._start_tracking(c._current_game_id, new_pid, new_start or time.time(), None)
+                return
+
         if c._session_start:
             elapsed = int(time.time() - c._session_start)
-            game_data = c._game_manager.get_game(c._current_game_id)
             if game_data:
                 process_name = game_data.get("process_name", "")
                 if process_name:
@@ -339,6 +623,8 @@ class LaunchControllerOps:
 
     def stop_tracking(self):
         c = self._c
+        game_data = c._game_manager.get_game(c._current_game_id) if c._current_game_id else None
+        process_name = str((game_data or {}).get("process_name") or "").strip().lower()
         c._is_monitoring = False
         if c._monitor_thread:
             c._monitor_thread.stop()
@@ -365,6 +651,11 @@ class LaunchControllerOps:
         c._current_runtime_game_name = ""
         c._current_runtime_started_at = 0.0
         c._session_start = None
+        if self._power_profile_armed and process_name and self._process_name_running(process_name):
+            self._pending_restore_process_name = process_name
+            self._power_restore_timer.start()
+        else:
+            self._restore_linux_power_profile()
         c.playbackChanged.emit()
         c.trackingChanged.emit()
 
@@ -392,8 +683,11 @@ class LaunchControllerOps:
             launch_cmd = list(cmd) if isinstance(cmd, (list, tuple)) else [str(cmd)]
             if IS_LINUX and launch_cmd and launch_cmd[0] != "game-performance":
                 launch_cmd = ["game-performance"] + launch_cmd
+            launch_env = sanitized_subprocess_env(env if env is not None else os.environ.copy())
+            if IS_LINUX and launch_cmd and launch_cmd[0] == "game-performance":
+                launch_env = system_python_path_env(launch_env)
             try:
-                proc = subprocess.Popen(launch_cmd, env=env)
+                proc = subprocess.Popen(launch_cmd, env=launch_env)
             except Exception:
                 c.errorMessage.emit(fail_message)
                 return False
@@ -425,6 +719,12 @@ class LaunchControllerOps:
             if target:
                 self._steam_probe_game_id = c._selected_game_id
                 self._steam_probe_target = target
+                self._steam_probe_targets = [target]
+                self._steam_probe_source = "steam"
+                self._steam_probe_install_path = str(game_data.get("install_path") or "")
+                self._steam_probe_app_id = str(app_id)
+                self._steam_probe_started_at = time.time()
+                self._steam_probe_baseline_pids = {p.pid for p in psutil.process_iter(["pid"])}
                 self._steam_probe_deadline = time.time() + 60.0
                 self._steam_probe_timer.start()
             return
@@ -449,26 +749,54 @@ class LaunchControllerOps:
             )
             return
 
-        if game_data.get("source") == "epic" or game_data.get("legendary_app_name"):
-            app_name = game_data.get("legendary_app_name")
+        if game_data.get("source") == "epic" or game_data.get("legendary_app_name") or game_data.get("heroic_app_name"):
+            app_name = game_data.get("heroic_app_name") or game_data.get("legendary_app_name")
             if not app_name:
                 c.errorMessage.emit("Epic app id is missing.")
                 return
-            cmd = c._game_manager.get_legendary_launch_command(app_name)
+            launcher_kind, cmd = c._game_manager.get_epic_launch_command(app_name)
             if not cmd:
-                c.errorMessage.emit("Legendary CLI not found in PATH.")
+                c.errorMessage.emit("Heroic/Legendary launcher not found.")
                 return
             try:
                 env = os.environ.copy()
-                cfg_dir = c._game_manager.get_heroic_legendary_config_dir()
-                if cfg_dir:
-                    env["LEGENDARY_CONFIG_PATH"] = str(cfg_dir)
-                    env["LEGENDARY_CONFIG_DIR"] = str(cfg_dir)
-                    env.setdefault("XDG_CONFIG_HOME", str(cfg_dir.parent.parent))
+                if launcher_kind == "legendary":
+                    cfg_dir = c._game_manager.get_heroic_legendary_config_dir()
+                    if cfg_dir:
+                        env["LEGENDARY_CONFIG_PATH"] = str(cfg_dir)
+                        env["LEGENDARY_CONFIG_DIR"] = str(cfg_dir)
+                        env.setdefault("XDG_CONFIG_HOME", str(cfg_dir.parent.parent))
             except Exception:
-                c.errorMessage.emit("Failed to launch Legendary.")
+                c.errorMessage.emit("Failed to prepare Epic launcher environment.")
                 return
-            _launch_subprocess_and_track(cmd, "Failed to launch Legendary.", env=env)
+            # Heroic/Legendary launchers can exit before the real game process.
+            # On Linux, probe for the actual game process instead of tracking launcher PID.
+            launch_cmd = list(cmd) if isinstance(cmd, (list, tuple)) else [str(cmd)]
+            if IS_LINUX and launch_cmd and launch_cmd[0] != "game-performance":
+                launch_cmd = ["game-performance"] + launch_cmd
+            launch_env = sanitized_subprocess_env(env if env is not None else os.environ.copy())
+            if IS_LINUX and launch_cmd and launch_cmd[0] == "game-performance":
+                launch_env = system_python_path_env(launch_env)
+            try:
+                self._dbg(f"[epic] launcher={launcher_kind} cmd={launch_cmd}")
+                subprocess.Popen(launch_cmd, env=launch_env)
+            except Exception:
+                c.errorMessage.emit("Failed to launch Epic game.")
+                return
+            target = str(game_data.get("process_name") or "").strip() or str(app_name).strip()
+            if target:
+                probe_targets = [target, str(app_name or "").strip(), str(game_data.get("name") or "").strip()]
+                probe_targets = [t for t in probe_targets if t]
+                self._steam_probe_game_id = c._selected_game_id
+                self._steam_probe_target = target
+                self._steam_probe_targets = probe_targets
+                self._steam_probe_source = "epic"
+                self._steam_probe_install_path = str(game_data.get("install_path") or "")
+                self._steam_probe_app_id = ""
+                self._steam_probe_started_at = time.time()
+                self._steam_probe_baseline_pids = {p.pid for p in psutil.process_iter(["pid"])}
+                self._steam_probe_deadline = time.time() + 90.0
+                self._steam_probe_timer.start()
             return
 
         if game_data.get("is_emulated"):
@@ -522,6 +850,8 @@ class LaunchControllerOps:
             compat_tool=game_data.get("compat_tool"),
             compat_path=game_data.get("wine_prefix"),
             wine_dll_overrides=game_data.get("wine_dll_overrides"),
+            wine_esync=game_data.get("wine_esync"),
+            wine_fsync=game_data.get("wine_fsync"),
             steam_app_id=game_data.get("steam_app_id"),
             game_name=game_data.get("name"),
         )
