@@ -21,6 +21,9 @@ def resolve_user_path(p):
         return home
     if path.startswith("~/"):
         return home + path[1:]
+    # Fix paths missing a leading slash (e.g. "home/user/...")
+    if not path.startswith("/") and path.startswith("home/"):
+        path = "/" + path
     # Accept common placeholder form used in docs/examples.
     if platform.system() == "Linux":
         if path == "/home/username":

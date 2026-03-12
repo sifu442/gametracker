@@ -582,15 +582,12 @@ ApplicationWindow {
             }
         }
 
-        FileDialog {
+        FolderDialog {
             id: folderDialog
             property var targetField
-            fileMode: FileDialog.Directory
             onAccepted: {
                 if (targetField) {
-                    var picked = selectedFile
-                    if (!picked && selectedFiles && selectedFiles.length > 0)
-                        picked = selectedFiles[0]
+                    var picked = selectedFolder
                     targetField.text = appRoot.toLocalPath(picked)
                 }
             }

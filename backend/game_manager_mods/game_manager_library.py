@@ -2,6 +2,7 @@ import time
 from pathlib import Path
 
 from utils.helpers import fix_path_str, canonicalize_path
+from backend.controllers_helpers import extract_steam_app_id_from_links
 
 
 def ensure_game_ids(self):
@@ -64,6 +65,14 @@ def migrate_cover_paths(self):
                     if new_path != plat_path:
                         exe_paths[plat_key] = new_path
                         changed = True
+
+        # Backfill steam_app_id from links when missing.
+        if not game_data.get("steam_app_id"):
+            links = game_data.get("links")
+            app_id = extract_steam_app_id_from_links(links)
+            if app_id:
+                game_data["steam_app_id"] = app_id
+                changed = True
 
         # Emulation-only fields should not persist for native games.
         if not bool(game_data.get("is_emulated")):

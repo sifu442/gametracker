@@ -61,21 +61,8 @@ class PopupManager:
             if self._show_windows_toast(title, text, icon_path):
                 return
 
-        # Linux native notifications can show a custom image icon via notify-send.
-        if platform.system() == "Linux" and shutil.which("notify-send"):
-            cmd = ["notify-send", "-a", "GameTracker", title, text]
-            if icon_path:
-                cmd.extend(["-i", icon_path])
-            try:
-                subprocess.Popen(cmd)
-                return
-            except Exception:
-                pass
-
-        tray = self._ensure_tray()
-        if tray is None:
-            return
-        tray.showMessage(title, text, QSystemTrayIcon.MessageIcon.Information, 4000)
+        # System tray notifications disabled.
+        return
 
     @staticmethod
     def _xml_escape(value: str) -> str:

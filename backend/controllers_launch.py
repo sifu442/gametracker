@@ -33,7 +33,7 @@ class LaunchControllerOps:
     def __init__(self, controller: "AppController") -> None:
         self._c = controller
         self._steam_probe_timer = QTimer()
-        self._steam_probe_timer.setInterval(350)
+        self._steam_probe_timer.setInterval(250)
         self._steam_probe_timer.timeout.connect(self._probe_steam_game_process)
         self._steam_probe_game_id = ""
         self._steam_probe_target = ""
@@ -428,6 +428,7 @@ class LaunchControllerOps:
         c._current_pid = pid
         c._current_proc = proc
         c._session_start = time.time()
+        c._pending_session_finalize = True
         c._is_monitoring = True
         self._enable_linux_performance_profile()
         c.playbackChanged.emit()
@@ -620,6 +621,8 @@ class LaunchControllerOps:
         is_launcher_managed = source in ("steam", "epic") or bool(
             (game_data or {}).get("legendary_app_name") or (game_data or {}).get("heroic_app_name")
         )
+        runtime_managed = bool(getattr(c, "_current_runtime_managed", False))
+        runtime_tool = str(getattr(c, "_current_runtime_tool", "") or "").strip().lower()
         if game_data and is_launcher_managed:
             new_pid, new_start = self._find_runtime_pid_for_game(game_data)
             if new_pid and new_pid != int(c._current_pid or 0):
@@ -649,9 +652,21 @@ class LaunchControllerOps:
             self._steam_probe_recover_mode = True
             self._steam_probe_started_at = time.time()
             self._steam_probe_baseline_pids = {p.pid for p in psutil.process_iter(["pid"])}
-            self._steam_probe_deadline = time.time() + 8.0
+            self._steam_probe_deadline = time.time() + 5.0
             self._steam_probe_timer.start()
             return
+        if game_data and runtime_managed and runtime_tool in ("wine", "proton"):
+            new_pid, new_start = self._find_runtime_pid_for_game(game_data)
+            if new_pid and new_pid != int(c._current_pid or 0):
+                self._dbg(f"[probe] reattach runtime pid={new_pid} source=compat")
+                if c._session_start:
+                    elapsed = int(time.time() - c._session_start)
+                    process_name = game_data.get("process_name", "")
+                    if process_name and elapsed > 0:
+                        current_total = c._game_manager.get_total_playtime(process_name)
+                        c._game_manager.set_playtime(process_name, current_total + elapsed)
+                c._start_tracking(c._current_game_id, new_pid, new_start or time.time(), None)
+                return
 
         if c._session_start:
             elapsed = int(time.time() - c._session_start)
@@ -661,12 +676,21 @@ class LaunchControllerOps:
                     current_total = c._game_manager.get_total_playtime(process_name)
                     c._game_manager.set_playtime(process_name, current_total + elapsed)
                     c._game_manager.set_last_played(process_name, time.time())
+        c._pending_session_finalize = False
         c._stop_tracking()
 
     def stop_tracking(self):
         c = self._c
         game_data = c._game_manager.get_game(c._current_game_id) if c._current_game_id else None
         process_name = str((game_data or {}).get("process_name") or "").strip().lower()
+        if getattr(c, "_pending_session_finalize", False) and c._session_start:
+            elapsed = int(time.time() - c._session_start)
+            if game_data and process_name:
+                if elapsed > 0:
+                    current_total = c._game_manager.get_total_playtime(process_name)
+                    c._game_manager.set_playtime(process_name, current_total + elapsed)
+                c._game_manager.set_last_played(process_name, time.time())
+            c._pending_session_finalize = False
         c._is_monitoring = False
         if c._monitor_thread:
             c._monitor_thread.stop()

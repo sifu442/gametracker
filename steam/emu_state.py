@@ -72,7 +72,14 @@ def _parse_json(path: Path) -> dict[str, AchievementState]:
             for r in rows:
                 if not isinstance(r, dict):
                     continue
-                name = str(r.get("name") or r.get("api_name") or r.get("id") or "")
+                name = str(
+                    r.get("name")
+                    or r.get("api_name")
+                    or r.get("achievement_api")
+                    or r.get("achievementApi")
+                    or r.get("id")
+                    or ""
+                )
                 if not name:
                     continue
                 achieved_val = r.get("achieved", r.get("Achieved", r.get("earned", r.get("Earned", False))))
@@ -87,7 +94,14 @@ def _parse_json(path: Path) -> dict[str, AchievementState]:
         for r in data:
             if not isinstance(r, dict):
                 continue
-            name = str(r.get("name") or r.get("api_name") or r.get("id") or "")
+            name = str(
+                r.get("name")
+                or r.get("api_name")
+                or r.get("achievement_api")
+                or r.get("achievementApi")
+                or r.get("id")
+                or ""
+            )
             if not name:
                 continue
             achieved_val = r.get("achieved", r.get("Achieved", r.get("earned", r.get("Earned", False))))
@@ -147,9 +161,42 @@ def load_local_state(path: Path, schema_names: list[str]) -> dict[str, Achieveme
 
     name = path.name.lower()
     if name.endswith(".json"):
-        return _parse_json(path)
-    if name.endswith(".ini"):
-        return _parse_ini(path)
-    if name.endswith(".bin") or name.endswith(".dat"):
-        return _parse_bin(path, schema_names)
-    return {}
+        state = _parse_json(path)
+    elif name.endswith(".ini"):
+        state = _parse_ini(path)
+    elif name.endswith(".bin") or name.endswith(".dat"):
+        state = _parse_bin(path, schema_names)
+    else:
+        state = {}
+
+    if not state or not schema_names:
+        return state
+
+    # Map numeric-only keys (achievement_api) to schema names.
+    # Some emu formats store ordinal ids (1..N) instead of API names.
+    crc_map = _crc_key_map(schema_names)
+    remapped: dict[str, AchievementState] = {}
+    for key, value in state.items():
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+        mapped = None
+        if key_str.isdigit():
+            try:
+                num = int(key_str)
+                if 1 <= num <= len(schema_names):
+                    mapped = schema_names[num - 1]
+                elif 0 <= num < len(schema_names):
+                    mapped = schema_names[num]
+                else:
+                    mapped = crc_map.get(num)
+            except Exception:
+                mapped = None
+        else:
+            try:
+                if key_str.lower().startswith("0x"):
+                    mapped = crc_map.get(int(key_str, 16))
+            except Exception:
+                mapped = None
+        remapped[mapped or key_str] = value
+    return remapped

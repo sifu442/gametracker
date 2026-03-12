@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.constants import COVERS_DIR, HEROES_DIR, IS_LINUX, IS_WINDOWS, LOGOS_DIR, SCRIPT_DIR
-from utils.helpers import canonicalize_path, fix_path_str, sanitize_filename_component
+from utils.helpers import canonicalize_path, fix_path_str, sanitize_filename_component, resolve_user_path
 
 if TYPE_CHECKING:
     from backend.controllers import AppController
@@ -33,10 +33,28 @@ class LibraryControllerOps:
             return None
 
     def _default_linux_wine_prefix(self, game_name):
-        safe_name = "".join(
-            ch if (ch.isalnum() or ch in ("-", "_", ".")) else "_" for ch in str(game_name or "")
-        ).strip("_") or "Game"
+        safe_name = self._safe_prefix_name(game_name)
         return str(Path.home() / ".local" / "share" / "gametracker" / "Prefixes" / safe_name)
+
+    def _safe_prefix_name(self, game_name):
+        return (
+            "".join(ch if (ch.isalnum() or ch in ("-", "_", ".")) else "_" for ch in str(game_name or ""))
+            .strip("_")
+            or "Game"
+        )
+
+    def _normalize_wine_prefix(self, prefix_value, game_name):
+        safe_name = self._safe_prefix_name(game_name)
+        raw = (prefix_value or "").strip()
+        if not raw:
+            return canonicalize_path(self._default_linux_wine_prefix(game_name))
+        resolved = resolve_user_path(raw)
+        prefix_path = Path(resolved).expanduser()
+        if not prefix_path.is_absolute():
+            prefix_path = Path.home() / prefix_path
+        if prefix_path.name.strip().lower() != safe_name.lower():
+            prefix_path = prefix_path / safe_name
+        return canonicalize_path(str(prefix_path))
 
     def _parse_playtime_minutes(self, value, default_value=0):
         text = str(value or "").strip()
@@ -164,8 +182,8 @@ class LibraryControllerOps:
             compat_tool = ""
 
         resolved_wine_prefix = canonicalize_path((wine_prefix or "").strip()) or None
-        if IS_LINUX and not is_emulated and not resolved_wine_prefix:
-            resolved_wine_prefix = canonicalize_path(self._default_linux_wine_prefix(name))
+        if IS_LINUX and not is_emulated:
+            resolved_wine_prefix = self._normalize_wine_prefix(resolved_wine_prefix, name)
 
         game_data = {
             "name": name,
@@ -238,6 +256,12 @@ class LibraryControllerOps:
                 track["last_session_end"] = last_ts
             c._game_manager.tracking_data[game_data["process_name"]] = track
             c._game_manager.save_tracking()
+        # Keep editable playtime consistent with runtime tracker for non-Steam entries.
+        if game_data.get("process_name") and str(game_data.get("source") or "").strip().lower() != "steam":
+            c._game_manager.set_playtime(
+                game_data["process_name"],
+                int(float(game_data.get("playtime", 0) or 0) * 60),
+            )
         c._game_model.refresh()
         c.libraryChanged.emit()
 
@@ -288,8 +312,8 @@ class LibraryControllerOps:
         )
         new_entry["install_location"] = canonicalize_path((install_location or "").strip())
         resolved_wine_prefix = canonicalize_path((wine_prefix or "").strip()) or None
-        if IS_LINUX and not old_data.get("is_emulated") and not resolved_wine_prefix:
-            resolved_wine_prefix = canonicalize_path(self._default_linux_wine_prefix(new_name))
+        if IS_LINUX and not old_data.get("is_emulated"):
+            resolved_wine_prefix = self._normalize_wine_prefix(resolved_wine_prefix, new_name)
         new_entry["wine_prefix"] = resolved_wine_prefix
         new_entry["wine_dll_overrides"] = (wine_dll_overrides or "").strip() or None
         new_entry["wine_esync"] = bool(wine_esync)
@@ -349,6 +373,11 @@ class LibraryControllerOps:
                 track["last_session_end"] = last_ts
             c._game_manager.tracking_data[process_name] = track
             c._game_manager.save_tracking()
+        if process_name and str(new_entry.get("source") or "").strip().lower() != "steam":
+            c._game_manager.set_playtime(
+                process_name,
+                int(float(new_entry.get("playtime", 0) or 0) * 60),
+            )
 
         cover_path = (cover_path or "").strip()
         logo_path = (logo_path or "").strip()

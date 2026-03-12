@@ -51,6 +51,22 @@ class GameLauncher:
         return "2560x1440"
 
     @staticmethod
+    def _force_system_resolution_env(env):
+        disable = str(os.environ.get("GAMETRACKER_DISABLE_FORCE_RESOLUTION", "")).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if disable:
+            return env
+        res = GameLauncher._detect_wine_resolution()
+        if res:
+            env.setdefault("WINE_FULLSCREEN_RESOLUTION", res)
+            env.setdefault("WINE_RESOLUTION", res)
+        return env
+
+    @staticmethod
     def _with_linux_game_performance(cmd):
         if IS_LINUX and cmd and cmd[0] != "game-performance":
             return ["game-performance"] + cmd
@@ -108,12 +124,14 @@ class GameLauncher:
             elif IS_LINUX:
                 tool = (compat_tool or "").strip().lower()
                 prefix_path = Path(resolve_user_path(compat_path)).expanduser() if compat_path else None
+                if prefix_path and not prefix_path.is_absolute():
+                    prefix_path = Path.home() / prefix_path
                 dll_overrides = (wine_dll_overrides or "").strip()
                 esync_enabled = None if wine_esync is None else bool(wine_esync)
                 fsync_enabled = None if wine_fsync is None else bool(wine_fsync)
                 app_id = str(steam_app_id or "").strip()
                 game_performance_active = bool(shutil.which("game-performance"))
-                if not prefix_path and tool in ("wine", "proton"):
+                if not prefix_path and (tool in ("wine", "proton") or use_proton):
                     prefix_path = GameLauncher._default_compat_prefix(game_name or exe_path.stem)
                 if prefix_path:
                     # Ensure compat folder exists before launch.
@@ -179,14 +197,8 @@ class GameLauncher:
                             "yes",
                             "on",
                         )
-                        # game-performance relies on a foreground child process lifetime.
-                        # umu-run can hand off and exit early on some setups, so prefer direct
-                        # proton execution when game-performance is in use.
-                        umu_run = shutil.which("umu-run") if (not disable_umu and not game_performance_active) else None
-                        if game_performance_active and not disable_umu:
-                            GameLauncher._dbg(
-                                "Skipping umu-run while game-performance is active; using proton directly.",
-                            )
+                        # Prefer umu-run when available (unless explicitly disabled).
+                        umu_run = shutil.which("umu-run") if not disable_umu else None
                         if umu_run:
                             umu_env = env.copy()
                             umu_env["PROTONPATH"] = str(Path(proton_path))
@@ -194,6 +206,7 @@ class GameLauncher:
                                 # umu expects a Wine-style prefix path.
                                 umu_env["WINEPREFIX"] = str(prefix_path)
                             umu_env.setdefault("GAMEID", app_id if app_id.isdigit() else f"gametracker-{exe_path.stem}")
+                            umu_env = GameLauncher._force_system_resolution_env(umu_env)
                             try:
                                 launch_cmd = GameLauncher._with_linux_game_performance([umu_run, str(exe_path)])
                                 GameLauncher._dbg(f"[launch] proton umu cmd={launch_cmd}")

@@ -47,36 +47,8 @@ class PopupManager:
         return self._tray
 
     def _show_system_notification(self, event: UnlockEvent) -> None:
-        if platform.system().lower() == "linux" and self._show_linux_libnotify(event):
-            return
-
-        tray = self._ensure_tray()
-        if tray is None:
-            return
-        title = f"{event.game} • Achievement Unlocked"
-        text = event.achievement if not event.description else f"{event.achievement}\n{event.description}"
-        tray.showMessage(title, text, QSystemTrayIcon.MessageIcon.Information, 4000)
-
-    def _show_linux_libnotify(self, event: UnlockEvent) -> bool:
-        notify_send = shutil.which("notify-send")
-        if not notify_send:
-            return False
-
-        title = f"{event.game} - Achievement Unlocked"
-        body = event.achievement if not event.description else f"{event.achievement}\n{event.description}"
-        cmd = [
-            notify_send,
-            "--app-name=GameTracker",
-            "--expire-time=4000",
-            "--icon=applications-games",
-            title,
-            body,
-        ]
-        try:
-            subprocess.Popen(cmd)
-            return True
-        except Exception:
-            return False
+        # System tray notifications disabled.
+        return
 
     def _anchor_point(self) -> QPoint:
         # Prefer app window geometry so popup appears above in-app content ("games" area).
