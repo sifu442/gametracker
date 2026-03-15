@@ -409,6 +409,46 @@ def scan_steam_games(self):
     return added, updated, skipped
 
 
+def get_steam_install_path(self, app_id):
+    """Return install path for a Steam appid by scanning appmanifest files."""
+    if not app_id:
+        return ""
+    app_id = str(app_id).strip()
+    if not app_id:
+        return ""
+    library_paths = []
+    for root in self._get_steam_root_candidates():
+        if not root.exists():
+            continue
+        library_paths.append(root)
+        vdf = root / "steamapps" / "libraryfolders.vdf"
+        if vdf.exists():
+            try:
+                text = vdf.read_text(encoding="utf-8", errors="ignore")
+                for path in self._parse_vdf_paths(text):
+                    library_paths.append(Path(fix_path_str(path)))
+            except Exception:
+                pass
+    for root in library_paths:
+        steamapps = root / "steamapps"
+        if not steamapps.exists():
+            continue
+        appmanifest = steamapps / f"appmanifest_{app_id}.acf"
+        if not appmanifest.exists():
+            continue
+        try:
+            text = appmanifest.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        installdir = self._parse_vdf_field(text, "installdir")
+        if not installdir:
+            continue
+        install_path = canonicalize_path(fix_path_str(str(steamapps / "common" / installdir)))
+        if install_path:
+            return install_path
+    return ""
+
+
 def _get_riot_programdata_root(self):
     if IS_WINDOWS:
         return Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "Riot Games"

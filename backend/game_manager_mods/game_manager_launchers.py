@@ -158,3 +158,35 @@ def get_steam_playtime_minutes(self, app_id):
                 except Exception:
                     return 0
     return 0
+
+
+def get_steam_last_played_ts(self, app_id):
+    """Return Steam last played timestamp (unix seconds) from localconfig.vdf."""
+    if not app_id:
+        return 0
+    app_id = str(app_id)
+    for root in self._get_steam_root_candidates():
+        userdata_root = root / "userdata"
+        if not userdata_root.exists():
+            continue
+        for user_dir in userdata_root.iterdir():
+            if not user_dir.is_dir():
+                continue
+            cfg = user_dir / "config" / "localconfig.vdf"
+            if not cfg.exists():
+                continue
+            try:
+                text = cfg.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            m = re.search(
+                rf'"{re.escape(app_id)}"\s*\{{[^}}]*?"LastPlayed"\s*"(\d+)"',
+                text,
+                re.S,
+            )
+            if m:
+                try:
+                    return float(m.group(1))
+                except Exception:
+                    return 0
+    return 0

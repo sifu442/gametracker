@@ -206,10 +206,25 @@ class ViewModelControllerOps:
         return options
 
     def selected_last_played_text(self) -> str:
-        process_name = self.selected_game_str("process_name")
-        if not process_name:
+        game = self.selected_game()
+        if not game:
             return "Never"
-        last_ts = self._c._game_manager.tracking_data.get(process_name, {}).get("last_session_end")
+        process_name = str(game.get("process_name") or "").strip()
+        tracking = self._c._game_manager.tracking_data
+        last_ts = 0.0
+        if process_name:
+            last_ts = tracking.get(process_name, {}).get("last_session_end") or 0
+            if not last_ts:
+                last_ts = tracking.get(process_name.lower(), {}).get("last_session_end") or 0
+        try:
+            last_ts = float(last_ts or 0)
+        except Exception:
+            last_ts = 0.0
+        if last_ts <= 0:
+            try:
+                last_ts = float(game.get("last_played") or 0)
+            except Exception:
+                last_ts = 0.0
         if not last_ts:
             return "Never"
         try:
@@ -252,8 +267,15 @@ class ViewModelControllerOps:
             return ""
         process_name = str(game.get("process_name") or "").strip()
         if process_name:
-            last_ts = self._c._game_manager.tracking_data.get(process_name, {}).get("last_session_end")
-            if last_ts:
+            tracking = self._c._game_manager.tracking_data
+            last_ts = tracking.get(process_name, {}).get("last_session_end") or 0
+            if not last_ts:
+                last_ts = tracking.get(process_name.lower(), {}).get("last_session_end") or 0
+            try:
+                last_ts = float(last_ts or 0)
+            except Exception:
+                last_ts = 0.0
+            if last_ts > 0:
                 return self._format_date_yyyy_mm_dd(last_ts)
         return self._format_date_yyyy_mm_dd(game.get("last_played"))
 

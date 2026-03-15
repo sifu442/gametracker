@@ -229,6 +229,19 @@ class LaunchControllerOps:
                 f"[probe] timeout source={self._steam_probe_source} "
                 f"targets={self._steam_probe_targets or [self._steam_probe_target]}",
             )
+            # Fallback: if Steam launch probe failed, still mark last played.
+            if self._steam_probe_source == "steam" and self._steam_probe_game_id:
+                game_data = c._game_manager.get_game(self._steam_probe_game_id)
+                if game_data:
+                    last_ts = time.time()
+                    try:
+                        prev = float(game_data.get("last_played") or 0)
+                    except Exception:
+                        prev = 0
+                    if last_ts > prev:
+                        game_data["last_played"] = float(last_ts)
+                        c._game_manager.save_library()
+                        c.libraryChanged.emit()
             self._steam_probe_timer.stop()
             self._steam_probe_game_id = ""
             self._steam_probe_target = ""
@@ -320,6 +333,12 @@ class LaunchControllerOps:
             self._steam_probe_started_at = 0.0
             self._steam_probe_baseline_pids = set()
             self._steam_probe_deadline = 0.0
+            # Ensure a stable tracking key for last-played updates.
+            game_data = c._game_manager.get_game(gid) if gid else None
+            if game_data is not None:
+                process_name = str(game_data.get("process_name") or "").strip()
+                if not process_name:
+                    game_data["process_name"] = str(gid or "").strip()
             c._start_tracking(gid, winner[0], winner[1], None)
 
     def _find_runtime_pid_for_game(self, game_data):
@@ -675,7 +694,17 @@ class LaunchControllerOps:
                 if process_name:
                     current_total = c._game_manager.get_total_playtime(process_name)
                     c._game_manager.set_playtime(process_name, current_total + elapsed)
-                    c._game_manager.set_last_played(process_name, time.time())
+                    last_ts = time.time()
+                    c._game_manager.set_last_played(process_name, last_ts)
+                    # Persist last played on the game entry for immediate UI updates.
+                    try:
+                        prev = float(game_data.get("last_played") or 0)
+                    except Exception:
+                        prev = 0
+                    if last_ts > prev:
+                        game_data["last_played"] = float(last_ts)
+                        c._game_manager.save_library()
+                        c.libraryChanged.emit()
         c._pending_session_finalize = False
         c._stop_tracking()
 
@@ -689,7 +718,16 @@ class LaunchControllerOps:
                 if elapsed > 0:
                     current_total = c._game_manager.get_total_playtime(process_name)
                     c._game_manager.set_playtime(process_name, current_total + elapsed)
-                c._game_manager.set_last_played(process_name, time.time())
+                last_ts = time.time()
+                c._game_manager.set_last_played(process_name, last_ts)
+                try:
+                    prev = float(game_data.get("last_played") or 0)
+                except Exception:
+                    prev = 0
+                if last_ts > prev:
+                    game_data["last_played"] = float(last_ts)
+                    c._game_manager.save_library()
+                    c.libraryChanged.emit()
             c._pending_session_finalize = False
         c._is_monitoring = False
         if c._monitor_thread:
@@ -724,6 +762,8 @@ class LaunchControllerOps:
             self._restore_linux_power_profile()
         c.playbackChanged.emit()
         c.trackingChanged.emit()
+        c._game_model.refresh()
+        c.libraryChanged.emit()
 
     def play_selected(self):
         c = self._c
@@ -773,6 +813,18 @@ class LaunchControllerOps:
             if not cmd:
                 c.errorMessage.emit("Steam client not found.")
                 return
+            if not game_data.get("install_path"):
+                install_path = c._game_manager.get_steam_install_path(app_id)
+                if install_path:
+                    game_data["install_path"] = install_path
+                    c._game_manager.save_library()
+            # Ensure a stable tracking key for Steam games.
+            process_name = str(game_data.get("process_name") or "").strip()
+            if not process_name:
+                process_name = str(c._selected_game_id or "").strip()
+                if process_name:
+                    game_data["process_name"] = process_name
+                    c._game_manager.save_library()
             # Do not track Steam launcher PID as game runtime; Steam process can stay alive.
             # Steam playtime is read from Steam userdata, not local PID runtime.
             baseline_pids = set()
@@ -782,20 +834,32 @@ class LaunchControllerOps:
             except Exception:
                 c.errorMessage.emit("Failed to launch Steam.")
                 return
+            # Mark last played immediately on launch to avoid missed tracking.
+            last_ts = time.time()
+            if process_name:
+                c._game_manager.set_last_played(process_name, last_ts)
+                c.trackingChanged.emit()
+            try:
+                prev = float(game_data.get("last_played") or 0)
+            except Exception:
+                prev = 0
+            if last_ts > prev:
+                game_data["last_played"] = float(last_ts)
+                c._game_manager.save_library()
+                c.libraryChanged.emit()
             # Probe for the actual game process by configured process_name.
             target = str(game_data.get("process_name") or "").strip()
-            if target:
-                self._steam_probe_game_id = c._selected_game_id
-                self._steam_probe_target = target
-                self._steam_probe_targets = [target]
-                self._steam_probe_source = "steam"
-                self._steam_probe_install_path = str(game_data.get("install_path") or "")
-                self._steam_probe_app_id = str(app_id)
-                self._steam_probe_recover_mode = False
-                self._steam_probe_started_at = time.time()
-                self._steam_probe_baseline_pids = baseline_pids
-                self._steam_probe_deadline = time.time() + 60.0
-                self._steam_probe_timer.start()
+            self._steam_probe_game_id = c._selected_game_id
+            self._steam_probe_target = target
+            self._steam_probe_targets = [target] if target else []
+            self._steam_probe_source = "steam"
+            self._steam_probe_install_path = str(game_data.get("install_path") or "")
+            self._steam_probe_app_id = str(app_id)
+            self._steam_probe_recover_mode = False
+            self._steam_probe_started_at = time.time()
+            self._steam_probe_baseline_pids = baseline_pids
+            self._steam_probe_deadline = time.time() + 60.0
+            self._steam_probe_timer.start()
             return
 
         if game_data.get("source") == "riot" or game_data.get("riot_product_id"):

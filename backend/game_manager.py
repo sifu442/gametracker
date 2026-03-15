@@ -142,6 +142,7 @@ GameManager._get_steam_root_candidates = gm_sources._get_steam_root_candidates
 GameManager._parse_vdf_paths = gm_sources._parse_vdf_paths
 GameManager._parse_vdf_field = gm_sources._parse_vdf_field
 GameManager.scan_steam_games = gm_sources.scan_steam_games
+GameManager.get_steam_install_path = gm_sources.get_steam_install_path
 GameManager._get_riot_programdata_root = gm_sources._get_riot_programdata_root
 GameManager._get_riot_client_path = gm_sources._get_riot_client_path
 GameManager.scan_riot_games = gm_sources.scan_riot_games
