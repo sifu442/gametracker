@@ -139,16 +139,22 @@ class LibraryControllerOps:
         name,
         genre,
         platform,
+        developers,
+        publishers,
+        categories,
         playtime_minutes,
         notes,
         serial,
         exe_windows,
         exe_linux,
         install_location,
+        launch_options,
         wine_prefix,
-        wine_dll_overrides,
+        env_vars,
         wine_esync,
         wine_fsync,
+        proton_wayland,
+        proton_discord_rich_presence,
         windows_only,
         installed,
         cover_path,
@@ -192,13 +198,19 @@ class LibraryControllerOps:
                 "Linux": canonicalize_path(exe_linux),
             },
             "install_location": canonicalize_path((install_location or "").strip()),
+            "launch_options": (launch_options or "").strip() or None,
             "wine_prefix": resolved_wine_prefix,
-            "wine_dll_overrides": (wine_dll_overrides or "").strip() or None,
+            "env_vars": (env_vars or "").strip() or None,
             "wine_esync": bool(wine_esync),
             "wine_fsync": bool(wine_fsync),
+            "proton_wayland": bool(proton_wayland),
+            "proton_discord_rich_presence": bool(proton_discord_rich_presence),
             "windows_only": bool(windows_only),
             "installed": bool(installed),
             "genre": (genre or "").strip(),
+            "developers": (developers or "").strip(),
+            "publishers": (publishers or "").strip(),
+            "categories": (categories or "").strip(),
             "platform": (platform or ("Windows" if IS_WINDOWS else "Linux")).strip(),
             "notes": notes or "",
             "serial": (serial or "").strip(),
@@ -270,16 +282,22 @@ class LibraryControllerOps:
         name,
         genre,
         platform,
+        developers,
+        publishers,
+        categories,
         playtime_minutes,
         notes,
         serial,
         exe_windows,
         exe_linux,
         install_location,
+        launch_options,
         wine_prefix,
-        wine_dll_overrides,
+        env_vars,
         wine_esync,
         wine_fsync,
+        proton_wayland,
+        proton_discord_rich_presence,
         windows_only,
         installed,
         cover_path,
@@ -303,6 +321,9 @@ class LibraryControllerOps:
         new_entry = old_data.copy()
         new_entry["name"] = new_name
         new_entry["genre"] = (genre or "").strip()
+        new_entry["developers"] = (developers or "").strip()
+        new_entry["publishers"] = (publishers or "").strip()
+        new_entry["categories"] = (categories or "").strip()
         new_entry["platform"] = (platform or "").strip()
         new_entry["notes"] = notes or ""
         new_entry["serial"] = (serial or "").strip()
@@ -311,13 +332,16 @@ class LibraryControllerOps:
             old_data.get("playtime", 0),
         )
         new_entry["install_location"] = canonicalize_path((install_location or "").strip())
+        new_entry["launch_options"] = (launch_options or "").strip() or None
         resolved_wine_prefix = canonicalize_path((wine_prefix or "").strip()) or None
         if IS_LINUX and not old_data.get("is_emulated"):
             resolved_wine_prefix = self._normalize_wine_prefix(resolved_wine_prefix, new_name)
         new_entry["wine_prefix"] = resolved_wine_prefix
-        new_entry["wine_dll_overrides"] = (wine_dll_overrides or "").strip() or None
+        new_entry["env_vars"] = (env_vars or "").strip() or None
         new_entry["wine_esync"] = bool(wine_esync)
         new_entry["wine_fsync"] = bool(wine_fsync)
+        new_entry["proton_wayland"] = bool(proton_wayland)
+        new_entry["proton_discord_rich_presence"] = bool(proton_discord_rich_presence)
         new_entry["windows_only"] = bool(windows_only)
         new_entry["installed"] = bool(installed)
         new_entry["links"] = c._normalize_links_json(links_json)

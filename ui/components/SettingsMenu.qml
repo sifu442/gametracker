@@ -38,10 +38,14 @@ Item {
         }
     }
 
-        Menu {
+    Menu {
         id: settingsMenu
         y: menuY
         width: 260
+        leftPadding: 8
+        rightPadding: 8
+        topPadding: 6
+        bottomPadding: 6
         palette.text: "#f0f0f0"
         palette.windowText: "#f0f0f0"
         palette.buttonText: "#f0f0f0"
@@ -84,6 +88,10 @@ Item {
     Menu {
         id: libraryMenu
         width: 260
+        leftPadding: 8
+        rightPadding: 8
+        topPadding: 6
+        bottomPadding: 6
         palette.text: "#f0f0f0"
         palette.windowText: "#f0f0f0"
         palette.buttonText: "#f0f0f0"

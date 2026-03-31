@@ -4,6 +4,7 @@ Steam/SteamEmu refresh orchestration extracted from AppController.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING
 
@@ -42,10 +43,28 @@ class SteamControllerOps:
         self._c.steamRefreshProgress.emit(int(value or 0))
 
     def on_steam_worker_game_loaded(self, payload):
-        self._c._achievements_ops.on_steam_worker_game_loaded(payload)
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except Exception:
+            data = {}
+        try:
+            from utils.helpers import debug_log
+            debug_log(f"[steam] game_loaded payload_type={type(payload).__name__}")
+        except Exception:
+            pass
+        self._c._achievements_ops.on_steam_worker_game_loaded(data)
 
     def on_steam_worker_unlock_event(self, payload):
-        self._c._achievements_ops.on_steam_worker_unlock_event(payload)
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except Exception:
+            data = {}
+        try:
+            from utils.helpers import debug_log
+            debug_log(f"[steam] unlock_event payload_type={type(payload).__name__}")
+        except Exception:
+            pass
+        self._c._achievements_ops.on_steam_worker_unlock_event(data)
 
     def on_steam_worker_error(self, message):
         self._c.errorMessage.emit(message)
@@ -99,10 +118,28 @@ class SteamControllerOps:
         self._c.steamEmuRefreshProgress.emit(int(value or 0))
 
     def on_steamemu_worker_game_loaded(self, payload):
-        self._c._achievements_ops.on_steamemu_worker_game_loaded(payload)
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except Exception:
+            data = {}
+        try:
+            from utils.helpers import debug_log
+            debug_log(f"[steamemu] game_loaded payload_type={type(payload).__name__}")
+        except Exception:
+            pass
+        self._c._achievements_ops.on_steamemu_worker_game_loaded(data)
 
     def on_steamemu_worker_unlock_event(self, payload):
-        self._c._achievements_ops.on_steamemu_worker_unlock_event(payload)
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except Exception:
+            data = {}
+        try:
+            from utils.helpers import debug_log
+            debug_log(f"[steamemu] unlock_event payload_type={type(payload).__name__}")
+        except Exception:
+            pass
+        self._c._achievements_ops.on_steamemu_worker_unlock_event(data)
 
     def on_steamemu_worker_finished(self):
         self._c.steamEmuRefreshFinished.emit()

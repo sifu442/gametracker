@@ -41,6 +41,37 @@ class ViewModelControllerOps:
             return bool(default)
         return bool(game.get(key, default))
 
+    def _split_csv(self, value):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            items = value
+        else:
+            items = str(value).split(",")
+        out = []
+        seen = set()
+        for item in items:
+            name = str(item or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(name)
+        return out
+
+    def collect_unique_list(self, field_name: str):
+        data = self._c._game_manager.get_all_games() or {}
+        items = {}
+        for _, game in data.items():
+            if not isinstance(game, dict):
+                continue
+            values = self._split_csv(game.get(field_name))
+            for value in values:
+                items[value.lower()] = value
+        return sorted(items.values(), key=lambda v: v.lower())
+
     def selected_links_json(self) -> str:
         game = self.selected_game() or {}
         links = game.get("links", [])

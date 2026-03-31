@@ -53,7 +53,7 @@ class AppController(QObject):
     errorMessage = pyqtSignal(str)
     igdbCoverDownloaded = pyqtSignal(bool, str, str)
     igdbSearchResults = pyqtSignal(list)
-    igdbGameDetails = pyqtSignal(dict)
+    igdbGameDetails = pyqtSignal("QVariantMap")
     igdbGameDetailsJson = pyqtSignal(str)
     riotClientPathChanged = pyqtSignal()
     steamApiSettingsChanged = pyqtSignal()
@@ -63,17 +63,22 @@ class AppController(QObject):
     raProgressChanged = pyqtSignal()
     raProgressLoaded = pyqtSignal(int, int, object, object)
     imagesUpdateFinished = pyqtSignal(int, str)
+    steamGridImagesReady = pyqtSignal(str, str, str, str)
     steamRefreshProgress = pyqtSignal(int)
-    steamGameLoaded = pyqtSignal(object)
-    steamUnlockEvent = pyqtSignal(dict)
+    steamGameLoaded = pyqtSignal(str)
+    steamUnlockEvent = pyqtSignal(str)
     steamRefreshFinished = pyqtSignal()
     steamEmuRefreshProgress = pyqtSignal(int)
-    steamEmuGameLoaded = pyqtSignal(object)
-    steamEmuUnlockEvent = pyqtSignal(dict)
+    steamEmuGameLoaded = pyqtSignal(str)
+    steamEmuUnlockEvent = pyqtSignal(str)
     steamEmuRefreshFinished = pyqtSignal()
 
     def __init__(self, game_manager):
         super().__init__()
+        try:
+            from utils.helpers import debug_log
+        except Exception:
+            debug_log = None
         self._game_manager = game_manager
         self._game_model = GameModel(game_manager)
         self._selected_game_id = ""
@@ -87,9 +92,15 @@ class AppController(QObject):
         self._current_game_id = None
         self._current_pid = None
         self._session_start = None
+        if debug_log:
+            debug_log("[debug] init: ra ops")
         self._ra_ops = RaControllerOps(self)
         self._steam_ops = SteamControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: viewmodel ops")
         self._viewmodel_ops = ViewModelControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: sync ops")
         self._sync_ops = SyncControllerOps(self)
         self._auto_save_timer = QTimer()
         self._auto_save_timer.timeout.connect(self._auto_save)
@@ -101,6 +112,8 @@ class AppController(QObject):
         self._ra_unlocked_list = []
         self._images_update_running = False
         self.imagesUpdateFinished.connect(self._on_images_update_finished)
+        if debug_log:
+            debug_log("[debug] init: steam services")
         self._steam_thread_pool = QThreadPool.globalInstance()
         self._steam_popup_manager = None
         try:
@@ -117,6 +130,8 @@ class AppController(QObject):
             api_key=(self._config.get("steam_web_api_key") or "").strip(),
             lang=(self._config.get("steam_lang") or "en").strip(),
         )
+        if debug_log:
+            debug_log("[debug] init: steam emu roots")
         self._steam_emu_service.set_extra_roots(
             self._config.get("steam_emu_custom_roots") or []
         )
@@ -127,16 +142,30 @@ class AppController(QObject):
         self._steamemu_manual_unlock_events = 0
         self._steamemu_manual_started_at = 0.0
         self._steamemu_cache_refresh_requested_at = 0.0
+        if debug_log:
+            debug_log("[debug] init: steam emu watch timer")
         self._steamemu_watch_timer = QTimer()
         self._steamemu_watch_timer.setInterval(2000)
         self._steamemu_watch_timer.timeout.connect(self.poll_steamemu_achievements)
         self._steamemu_watch_timer.start()
         self._steam_merged_by_appid = {}
+        if debug_log:
+            debug_log("[debug] init: achievements ops")
         self._achievements_ops = AchievementsControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: launch ops")
         self._launch_ops = LaunchControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: settings ops")
         self._settings_ops = SettingsControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: igdb ops")
         self._igdb_media_ops = IgdbMediaControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: library ops")
         self._library_ops = LibraryControllerOps(self)
+        if debug_log:
+            debug_log("[debug] init: hltb ops")
         self._hltb_ops = HltbControllerOps(self)
 
     def _load_ra_progress_cache_from_config(self):
@@ -208,6 +237,7 @@ class AppController(QObject):
     def steamId64(self):
         return self._config.get("steam_id64", "")
 
+
     def _get_platforms_from_config(self):
         platforms = self._config.get("platforms")
         if isinstance(platforms, list):
@@ -243,6 +273,7 @@ class AppController(QObject):
     @pyqtSlot(str, str)
     def set_steam_api_settings(self, api_key, steam_id64):
         self._settings_ops.set_steam_api_settings(api_key, steam_id64)
+
 
     @pyqtProperty("QVariantList", notify=steamEmuRootsChanged)
     def steamEmuDefaultRoots(self):
@@ -318,6 +349,34 @@ class AppController(QObject):
     @pyqtProperty(str, notify=libraryChanged)
     def selectedGameGenre(self):
         return self._viewmodel_ops.selected_game_str("genre")
+
+    @pyqtProperty(str, notify=libraryChanged)
+    def selectedGameDevelopers(self):
+        return self._viewmodel_ops.selected_game_str("developers")
+
+    @pyqtProperty(str, notify=libraryChanged)
+    def selectedGamePublishers(self):
+        return self._viewmodel_ops.selected_game_str("publishers")
+
+    @pyqtProperty(str, notify=libraryChanged)
+    def selectedGameCategories(self):
+        return self._viewmodel_ops.selected_game_str("categories")
+
+    @pyqtProperty("QStringList", notify=libraryChanged)
+    def genreOptions(self):
+        return self._viewmodel_ops.collect_unique_list("genre")
+
+    @pyqtProperty("QStringList", notify=libraryChanged)
+    def developerOptions(self):
+        return self._viewmodel_ops.collect_unique_list("developers")
+
+    @pyqtProperty("QStringList", notify=libraryChanged)
+    def publisherOptions(self):
+        return self._viewmodel_ops.collect_unique_list("publishers")
+
+    @pyqtProperty("QStringList", notify=libraryChanged)
+    def categoryOptions(self):
+        return self._viewmodel_ops.collect_unique_list("categories")
 
     @pyqtProperty(str, notify=libraryChanged)
     def selectedGamePlatform(self):
@@ -411,6 +470,10 @@ class AppController(QObject):
     def update_images_from_steamgriddb(self):
         return self._igdb_media_ops.update_images_from_steamgriddb()
 
+    @pyqtSlot(str, str)
+    def download_steamgriddb_images_for_game(self, game_name, target):
+        return self._igdb_media_ops.download_steamgriddb_images_for_game(game_name, target)
+
     @pyqtSlot(int, str)
     def _on_images_update_finished(self, updated, message):
         self._igdb_media_ops.on_images_update_finished(updated, message)
@@ -454,8 +517,12 @@ class AppController(QObject):
         return self._viewmodel_ops.selected_game_str("wine_prefix")
 
     @pyqtProperty(str, notify=libraryChanged)
-    def selectedGameWineDllOverrides(self):
-        return self._viewmodel_ops.selected_game_str("wine_dll_overrides")
+    def selectedGameEnvVars(self):
+        return self._viewmodel_ops.selected_game_str("env_vars")
+
+    @pyqtProperty(str, notify=libraryChanged)
+    def selectedGameLaunchOptions(self):
+        return self._viewmodel_ops.selected_game_str("launch_options")
 
     @pyqtProperty(bool, notify=libraryChanged)
     def selectedGameWineEsync(self):
@@ -464,6 +531,14 @@ class AppController(QObject):
     @pyqtProperty(bool, notify=libraryChanged)
     def selectedGameWineFsync(self):
         return self._viewmodel_ops.selected_game_bool("wine_fsync", False)
+
+    @pyqtProperty(bool, notify=libraryChanged)
+    def selectedGameProtonWayland(self):
+        return self._viewmodel_ops.selected_game_bool("proton_wayland", False)
+
+    @pyqtProperty(bool, notify=libraryChanged)
+    def selectedGameProtonDiscordRichPresence(self):
+        return self._viewmodel_ops.selected_game_bool("proton_discord_rich_presence", False)
 
     @pyqtProperty(bool, notify=libraryChanged)
     def selectedGameWindowsOnly(self):
@@ -579,6 +654,10 @@ class AppController(QObject):
     @pyqtSlot(result=str)
     def create_desktop_shortcut(self):
         return self._launch_ops.create_desktop_shortcut()
+
+    @pyqtSlot(result=str)
+    def create_start_menu_shortcut(self):
+        return self._launch_ops.create_start_menu_shortcut()
 
     @pyqtSlot(result=str)
     def sync_selected_hltb(self):
@@ -697,6 +776,9 @@ class AppController(QObject):
         str,
         str,
         str,
+        str,
+        str,
+        str,
         int,
         str,
         str,
@@ -705,6 +787,9 @@ class AppController(QObject):
         str,
         str,
         str,
+        str,
+        bool,
+        bool,
         bool,
         bool,
         bool,
@@ -726,16 +811,22 @@ class AppController(QObject):
         name,
         genre,
         platform,
+        developers,
+        publishers,
+        categories,
         playtime_minutes,
         notes,
         serial,
         exe_windows,
         exe_linux,
         install_location,
+        launch_options,
         wine_prefix,
-        wine_dll_overrides,
+        env_vars,
         wine_esync,
         wine_fsync,
+        proton_wayland,
+        proton_discord_rich_presence,
         windows_only,
         installed,
         cover_path,
@@ -754,16 +845,22 @@ class AppController(QObject):
             name,
             genre,
             platform,
+            developers,
+            publishers,
+            categories,
             playtime_minutes,
             notes,
             serial,
             exe_windows,
             exe_linux,
             install_location,
+            launch_options,
             wine_prefix,
-            wine_dll_overrides,
+            env_vars,
             wine_esync,
             wine_fsync,
+            proton_wayland,
+            proton_discord_rich_presence,
             windows_only,
             installed,
             cover_path,
@@ -783,6 +880,9 @@ class AppController(QObject):
         str,
         str,
         str,
+        str,
+        str,
+        str,
         int,
         str,
         str,
@@ -791,6 +891,9 @@ class AppController(QObject):
         str,
         str,
         str,
+        str,
+        bool,
+        bool,
         bool,
         bool,
         bool,
@@ -809,16 +912,22 @@ class AppController(QObject):
         name,
         genre,
         platform,
+        developers,
+        publishers,
+        categories,
         playtime_minutes,
         notes,
         serial,
         exe_windows,
         exe_linux,
         install_location,
+        launch_options,
         wine_prefix,
-        wine_dll_overrides,
+        env_vars,
         wine_esync,
         wine_fsync,
+        proton_wayland,
+        proton_discord_rich_presence,
         windows_only,
         installed,
         cover_path,
@@ -834,16 +943,22 @@ class AppController(QObject):
             name,
             genre,
             platform,
+            developers,
+            publishers,
+            categories,
             playtime_minutes,
             notes,
             serial,
             exe_windows,
             exe_linux,
             install_location,
+            launch_options,
             wine_prefix,
-            wine_dll_overrides,
+            env_vars,
             wine_esync,
             wine_fsync,
+            proton_wayland,
+            proton_discord_rich_presence,
             windows_only,
             installed,
             cover_path,

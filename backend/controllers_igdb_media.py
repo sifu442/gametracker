@@ -164,6 +164,64 @@ class IgdbMediaControllerOps:
             c.libraryChanged.emit()
         c.errorMessage.emit(message)
 
+    def download_steamgriddb_images_for_game(self, game_name, target):
+        c = self._c
+        name = (game_name or "").strip()
+        if not name:
+            return ""
+        api_key = (c._config.get("steamgriddb_api_key") or "").strip()
+        if not api_key:
+            c.errorMessage.emit("SteamGridDB API key not configured.")
+            return ""
+
+        def worker():
+            cover_path = ""
+            logo_path = ""
+            hero_path = ""
+            try:
+                search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{quote(name)}"
+                search_data = self.steamgriddb_request(search_url, api_key)
+                if not search_data:
+                    c.steamGridImagesReady.emit(target, "", "", "")
+                    return
+                sgdb_id = search_data[0].get("id")
+                if not sgdb_id:
+                    c.steamGridImagesReady.emit(target, "", "", "")
+                    return
+
+                safe_name = sanitize_filename_component(name)
+                logo_data = self.steamgriddb_request(
+                    f"https://www.steamgriddb.com/api/v2/icons/game/{sgdb_id}",
+                    api_key,
+                )
+                if logo_data:
+                    url = logo_data[0].get("url")
+                    if url:
+                        logo_path = self.steamgriddb_download(url, TEMP_COVERS_DIR, f"{safe_name}_logo_tmp")
+
+                grid_data = self.steamgriddb_request(
+                    f"https://www.steamgriddb.com/api/v2/grids/game/{sgdb_id}",
+                    api_key,
+                )
+                if grid_data:
+                    url = grid_data[0].get("url")
+                    if url:
+                        cover_path = self.steamgriddb_download(url, TEMP_COVERS_DIR, f"{safe_name}_cover_tmp")
+
+                hero_data = self.steamgriddb_request(
+                    f"https://www.steamgriddb.com/api/v2/heroes/game/{sgdb_id}",
+                    api_key,
+                )
+                if hero_data:
+                    url = hero_data[0].get("url")
+                    if url:
+                        hero_path = self.steamgriddb_download(url, TEMP_COVERS_DIR, f"{safe_name}_hero_tmp")
+            finally:
+                c.steamGridImagesReady.emit(target, cover_path, logo_path, hero_path)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return "Downloading images in background..."
+
     def search_igdb(self, game_name):
         c = self._c
         name = (game_name or "").strip()
@@ -213,19 +271,29 @@ class IgdbMediaControllerOps:
         c = self._c
         game_id = (game_id or "").strip()
         if not game_id:
-            c.igdbGameDetails.emit({})
+            # Use JSON signal to avoid dict conversion issues in QML.
+            try:
+                c.igdbGameDetailsJson.emit("{}")
+            except Exception:
+                pass
             return
         try:
             game_id_int = int(game_id)
         except Exception:
             c.errorMessage.emit("IGDB game id is invalid.")
-            c.igdbGameDetails.emit({})
+            try:
+                c.igdbGameDetailsJson.emit("{}")
+            except Exception:
+                pass
             return
         client_id = c._config.get("igdb_client_id")
         client_secret = c._config.get("igdb_client_secret")
         if not client_id or not client_secret:
             c.errorMessage.emit("Please configure IGDB API in Settings first.")
-            c.igdbGameDetails.emit({})
+            try:
+                c.igdbGameDetailsJson.emit("{}")
+            except Exception:
+                pass
             return
         c._igdb_details_thread = IGDBDetailsThread(game_id_int, client_id, client_secret)
         c._igdb_details_thread.finished.connect(c._on_igdb_details_finished)
@@ -238,19 +306,21 @@ class IgdbMediaControllerOps:
                 safe_details = json.loads(json.dumps(details))
             except Exception:
                 safe_details = details
-            c.igdbGameDetails.emit(safe_details)
             try:
                 c.igdbGameDetailsJson.emit(json.dumps(safe_details))
             except Exception:
                 pass
         else:
-            c.igdbGameDetails.emit({})
             error_text = ""
             if isinstance(details, dict):
                 error_text = details.get("_error", "")
             if not error_text:
                 error_text = "IGDB details lookup failed (empty or missing name)."
             c.errorMessage.emit(error_text)
+            try:
+                c.igdbGameDetailsJson.emit("{}")
+            except Exception:
+                pass
         c._igdb_details_thread = None
 
     def download_media(self, media_type, url, game_name):

@@ -50,6 +50,7 @@ class SettingsControllerOps:
             c._steam_emu_service.update_api_key(c._config.get("steam_web_api_key", ""))
             c.steamApiSettingsChanged.emit()
 
+
     def persist_steam_emu_custom_roots(self, roots):
         c = self._c
         seen = set()

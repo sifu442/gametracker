@@ -386,6 +386,15 @@ ApplicationWindow {
             function onIgdbGameDetails(details) {
                 backendIgdbDetailsHandler(details)
             }
+            function onSteamGridImagesReady(target, coverPath, logoPath, heroPath) {
+                var dest = target === "edit" ? editDialog.details : addDialog.details
+                if (coverPath && !dest.coverField.text)
+                    dest.coverField.text = coverPath
+                if (logoPath && !dest.logoField.text)
+                    dest.logoField.text = logoPath
+                if (heroPath && !dest.heroField.text)
+                    dest.heroField.text = heroPath
+            }
 
             function backendIgdbDetailsHandler(details) {
                 if (!details || !details.name) {
@@ -426,7 +435,7 @@ ApplicationWindow {
                 }
                 if (details.genres && details.genres.length > 0) {
                     var g = details.genres.map(function(x) { return x.name }).filter(Boolean)
-                    target.genreField.text = g.join(", ")
+                    target.genreValue.text = g.join(", ")
                 } else {
                     missing.push("Genres")
                 }
@@ -468,7 +477,7 @@ ApplicationWindow {
                 }
                 if (details.game_modes && details.game_modes.length > 0) {
                     var c = details.game_modes.map(function(x) { return x.name }).filter(Boolean)
-                    target.categoriesField.text = c.join(", ")
+                    target.categoriesField.editText = c.join(", ")
                 } else {
                     missing.push("Categories")
                 }
@@ -492,11 +501,11 @@ ApplicationWindow {
                             pubs.push(cname)
                     }
                     if (devs.length > 0)
-                        target.developersField.text = devs.join(", ")
+                        target.developersField.editText = devs.join(", ")
                     else
                         missing.push("Developers")
                     if (pubs.length > 0)
-                        target.publishersField.text = pubs.join(", ")
+                        target.publishersField.editText = pubs.join(", ")
                     else
                         missing.push("Publishers")
                 } else {
@@ -546,6 +555,7 @@ ApplicationWindow {
                     var msg = "Missing from IGDB: " + missing.join(", ")
                     // suppressed dialog
                 }
+                backend.download_steamgriddb_images_for_game(details.name || "", appRoot.metadataTarget)
             }
             function onIgdbCoverDownloaded(success, imagePath, gameName) {
                 if (success) {
@@ -697,6 +707,20 @@ ApplicationWindow {
                 }
                 onTriggered: {
                     var result = backend.create_desktop_shortcut()
+                    errorDialog.message = result
+                    errorDialog.open()
+                }
+            }
+            MenuItem {
+                text: "Create Start Menu Shortcut"
+                contentItem: Text {
+                    text: parent.text
+                    color: "#f0f0f0"
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
+                onTriggered: {
+                    var result = backend.create_start_menu_shortcut()
                     errorDialog.message = result
                     errorDialog.open()
                 }

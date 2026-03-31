@@ -17,10 +17,13 @@ Item {
     property string gameIdText: ""
     property string firstPlayedText: ""
     property string lastPlayedText: ""
+    property var genreOptions: (root.backend && root.backend.genreOptions) ? root.backend.genreOptions : []
+    property string _genreFilter: ""
 
     property alias nameField: nameField
     property alias sortingNameField: sortingNameField
     property alias genreField: genreField
+    property alias genreValue: genreField
     property alias platformField: platformField
     property alias playtimeField: playtimeField
     property alias notesField: notesField
@@ -70,6 +73,61 @@ Item {
     TextField { id: protonPathField; visible: false }
     TextField { id: wineDllOverridesField; visible: false }
     TextArea { id: linksJsonField; visible: false; text: "[]" }
+
+    function _splitValues(value) {
+        if (!value)
+            return []
+        if (Array.isArray(value))
+            return value
+        var parts = String(value).split(",")
+        var out = []
+        for (var i = 0; i < parts.length; i++) {
+            var v = String(parts[i] || "").trim()
+            if (v)
+                out.push(v)
+        }
+        return out
+    }
+
+    function _rebuildGenreList() {
+        genreListModel.clear()
+        var selected = {}
+        var current = _splitValues(genreField.text)
+        for (var i = 0; i < current.length; i++)
+            selected[current[i].toLowerCase()] = true
+        var filter = String(_genreFilter || "").toLowerCase()
+        var opts = genreOptions || []
+        for (var j = 0; j < opts.length; j++) {
+            var name = opts[j]
+            var lower = String(name).toLowerCase()
+            if (selected[lower])
+                continue
+            if (filter && lower.indexOf(filter) === -1)
+                continue
+            genreListModel.append({ name: name })
+        }
+    }
+
+    function _openGenreMulti() {
+        _rebuildGenreList()
+        if (genreInputBox) {
+            var pt = genreInputBox.mapToItem(root, 0, genreInputBox.height)
+            genreMultiPopup.x = pt.x
+            genreMultiPopup.y = pt.y
+        }
+        genreMultiPopup.open()
+        if (genreFilterInput)
+            genreFilterInput.forceActiveFocus()
+    }
+
+    function _setGenresFromList(listValues) {
+        genreField.text = (listValues || []).join(", ")
+    }
+
+    function _setGenresFromString(textValue) {
+        var values = _splitValues(textValue)
+        _setGenresFromList(values)
+    }
 
     Popup {
         id: datePickerPopup
@@ -154,6 +212,66 @@ Item {
         }
     }
 
+    Popup {
+        id: genreMultiPopup
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        parent: root
+        width: genreInputBox ? genreInputBox.width : Math.min(420, root.width - 40)
+        height: 220
+        x: genreInputBox ? (genreInputBox.mapToItem(root, 0, 0).x) : 0
+        y: genreInputBox ? (genreInputBox.mapToItem(root, 0, genreInputBox.height).y) : 0
+        background: Rectangle {
+            color: "#1f212b"
+            radius: 6
+            border.color: "#2a2a2a"
+        }
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 6
+            ListView {
+                id: genreListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: ListModel { id: genreListModel }
+                delegate: Rectangle {
+                    width: genreListView.width
+                    height: 30
+                    color: hovered ? "#2a2e3a" : "transparent"
+                    property bool hovered: false
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onEntered: parent.hovered = true
+                        onExited: parent.hovered = false
+                        onPressed: {
+                            var name = model.name
+                            if (!name)
+                                return
+                            var values = root._splitValues(genreField.text)
+                            values.push(name)
+                            genreField.text = values.join(", ")
+                            root._genreFilter = ""
+                            if (genreFilterInput)
+                                genreFilterInput.text = ""
+                            root._rebuildGenreList()
+                        }
+                    }
+                    CrispText {
+                        text: model.name
+                        color: "#e8e8e8"
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: 8
+                    }
+                }
+            }
+        }
+    }
+
     StackLayout {
         anchors.fill: parent
         currentIndex: root.currentIndex
@@ -189,7 +307,86 @@ Item {
                         }
 
                         Text { text: "Genres"; color: "#d6d6d6" }
-                        TextField { id: genreField; placeholderText: "Genre"; Layout.fillWidth: true }
+                        Item {
+                            Layout.fillWidth: true
+                            height: 34
+                            Rectangle {
+                                id: genreInputBox
+                                anchors.fill: parent
+                                radius: 4
+                                color: "#2a2a2a"
+                                border.color: "#3a3a3a"
+                                clip: true
+                                TapHandler {
+                                    acceptedButtons: Qt.LeftButton
+                                    onTapped: root._openGenreMulti()
+                                }
+                                Flow {
+                                    id: genreChipFlow
+                                    anchors.fill: parent
+                                    anchors.margins: 6
+                                    spacing: 6
+                                    Repeater {
+                                        model: root._splitValues(genreField.text)
+                                        delegate: Rectangle {
+                                            radius: 8
+                                            color: "#2f3544"
+                                            border.color: "#3f475a"
+                                            height: 24
+                                            implicitHeight: 24
+                                            implicitWidth: chipRow.implicitWidth + 12
+                                            RowLayout {
+                                                id: chipRow
+                                                anchors.centerIn: parent
+                                                spacing: 6
+                                                CrispText {
+                                                    text: modelData
+                                                    color: "#e8e8e8"
+                                                    font.pointSize: 9
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    verticalAlignment: Text.AlignVCenter
+                                                }
+                                                StyledButton {
+                                                    text: "x"
+                                                    Layout.preferredWidth: 16
+                                                    Layout.preferredHeight: 16
+                                                    onClicked: {
+                                                        var values = root._splitValues(genreField.text)
+                                                        var target = String(modelData || "").toLowerCase()
+                                                        for (var i = 0; i < values.length; i++) {
+                                                            if (String(values[i]).toLowerCase() === target) {
+                                                                values.splice(i, 1)
+                                                                break
+                                                            }
+                                                        }
+                                                        genreField.text = values.join(", ")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    TextInput {
+                                        id: genreFilterInput
+                                        text: root._genreFilter
+                                        color: "#e8e8e8"
+                                        font.pointSize: 9
+                                        selectByMouse: true
+                                        inputMethodHints: Qt.ImhNoPredictiveText
+                                        onActiveFocusChanged: {
+                                            if (activeFocus) {
+                                                root._openGenreMulti()
+                                            }
+                                        }
+                                        onTextChanged: {
+                                            root._genreFilter = text
+                                            root._rebuildGenreList()
+                                        }
+                                        width: Math.max(120, parent.width - 24)
+                                    }
+                                }
+                            }
+                        }
+                        TextField { id: genreField; visible: false }
 
                         Text { text: "Developers"; color: "#d6d6d6" }
                         TextField { id: developersField; placeholderText: "" ; Layout.fillWidth: true }

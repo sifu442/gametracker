@@ -27,7 +27,10 @@ Dialog {
     onOpened: {
         appRootRef.refreshEmulators()
         editDetails.nameField.text = backendRef.selectedGameName
-        editDetails.genreField.text = backendRef.selectedGameGenre
+        editDetails._setGenresFromString(backendRef.selectedGameGenre)
+        editDetails.developersField.text = backendRef.selectedGameDevelopers
+        editDetails.publishersField.text = backendRef.selectedGamePublishers
+        editDetails.categoriesField.text = backendRef.selectedGameCategories
         editDetails.platformField.currentIndex = appRootRef.platformIndex(backendRef.selectedGamePlatform)
         editDetails.platformField.editText = backendRef.selectedGamePlatform
         editDetails.playtimeField.text = backendRef.selectedGamePlaytimeMinutes.toString()
@@ -42,9 +45,11 @@ Dialog {
             defaultPrefix = "~/.local/share/gametracker/Prefixes/" + (safeName || "Game")
         }
         editDetails.winePrefixField.text = backendRef.selectedGameWinePrefix || defaultPrefix
-        editDetails.wineDllOverridesField.text = backendRef.selectedGameWineDllOverrides
+        editDetails.envVarsField.text = backendRef.selectedGameEnvVars
         editDetails.wineEsyncCheck.checked = backendRef.selectedGameWineEsync
         editDetails.wineFsyncCheck.checked = backendRef.selectedGameWineFsync
+        editDetails.protonWaylandCheck.checked = backendRef.selectedGameProtonWayland
+        editDetails.protonDiscordRichPresenceCheck.checked = backendRef.selectedGameProtonDiscordRichPresence
         editDetails.windowsOnlyCheck.checked = backendRef.selectedGameWindowsOnly
         editDetails.installedCheck.checked = backendRef.selectedGameInstalledFlag
         editDetails.coverField.text = backendRef.selectedGameCover
@@ -60,6 +65,7 @@ Dialog {
         )
         editDetails.compatToolField.text = backendRef.selectedGameCompatTool
         editDetails.protonPathField.text = backendRef.selectedGameProtonPath
+        editDetails.launchOptionsField.text = backendRef.selectedGameLaunchOptions
         editDetails.gameIdField.text = backendRef.selectedGameId
         editDetails.firstPlayedField.text = backendRef.selectedGameFirstPlayedDate
         editDetails.lastPlayedField.text = backendRef.selectedGameLastPlayedDate
@@ -69,18 +75,24 @@ Dialog {
     onAccepted: {
         backendRef.update_selected_full(
             editDetails.nameField.text,
-            editDetails.genreField.text,
+            editDetails.genreValue.text,
             editDetails.platformField.editText || editDetails.platformField.currentText,
+            editDetails.developersField.editText || editDetails.developersField.currentText,
+            editDetails.publishersField.editText || editDetails.publishersField.currentText,
+            editDetails.categoriesField.editText || editDetails.categoriesField.currentText,
             parseInt(editDetails.playtimeField.text || "0"),
             editDetails.notesField.text,
             editDetails.serialField.text,
             editDetails.exePathField.text,
             editDetails.exePathField.text,
             "",
+            editDetails.launchOptionsField.text,
             editDetails.winePrefixField.text,
-            editDetails.wineDllOverridesField.text,
+            editDetails.envVarsField.text,
             editDetails.wineEsyncCheck.checked,
             editDetails.wineFsyncCheck.checked,
+            editDetails.protonWaylandCheck.checked,
+            editDetails.protonDiscordRichPresenceCheck.checked,
             editDetails.windowsOnlyCheck.checked,
             editDetails.installedCheck.checked,
             editDetails.coverField.text,
@@ -206,18 +218,24 @@ Dialog {
                         }
                         backendRef.update_selected_full(
                             editDetails.nameField.text,
-                            editDetails.genreField.text,
+                            editDetails.genreValue.text,
                             editDetails.platformField.editText || editDetails.platformField.currentText,
+                            editDetails.developersField.editText || editDetails.developersField.currentText,
+                            editDetails.publishersField.editText || editDetails.publishersField.currentText,
+                            editDetails.categoriesField.editText || editDetails.categoriesField.currentText,
                             parseInt(editDetails.playtimeField.text || "0"),
                             editDetails.notesField.text,
                             editDetails.serialField.text,
                             editExeWinField.text,
                             editExeLinuxField.text,
                             "",
+                            editDetails.launchOptionsField.text,
                             editDetails.winePrefixField.text,
-                            editDetails.wineDllOverridesField.text,
+                            editDetails.envVarsField.text,
                             editDetails.wineEsyncCheck.checked,
                             editDetails.wineFsyncCheck.checked,
+                            editDetails.protonWaylandCheck.checked,
+                            editDetails.protonDiscordRichPresenceCheck.checked,
                             editDetails.windowsOnlyCheck.checked,
                             editDetails.installedCheck.checked,
                             editDetails.coverField.text,

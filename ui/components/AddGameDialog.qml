@@ -25,7 +25,11 @@ Dialog {
 
     onOpened: {
         addDetails.nameField.text = ""
-        addDetails.genreField.text = ""
+        addDetails.genreValue.text = ""
+        addDetails._setGenresFromString("")
+        addDetails.developersField.editText = ""
+        addDetails.publishersField.editText = ""
+        addDetails.categoriesField.editText = ""
         addDetails.platformField.currentIndex = -1
         addDetails.platformField.editText = ""
         addDetails.playtimeField.text = "0"
@@ -34,9 +38,12 @@ Dialog {
         addExeWinField.text = ""
         addExeLinuxField.text = ""
         addDetails.exePathField.text = ""
+        addDetails.launchOptionsField.text = ""
         addDetails.winePrefixField.text = ""
         addDetails.wineEsyncCheck.checked = false
         addDetails.wineFsyncCheck.checked = false
+        addDetails.protonWaylandCheck.checked = false
+        addDetails.protonDiscordRichPresenceCheck.checked = false
         addDetails.windowsOnlyCheck.checked = false
         addDetails.installedCheck.checked = false
         addDetails.coverField.text = ""
@@ -45,7 +52,7 @@ Dialog {
         addDetails.compatCombo.currentIndex = appRootRef.compatIndex("", "")
         addDetails.compatToolField.text = ""
         addDetails.protonPathField.text = ""
-        addDetails.wineDllOverridesField.text = ""
+        addDetails.envVarsField.text = ""
         addDetails.emulatedCheck.checked = false
         addDetails.emulatorCombo.currentIndex = 0
         addDetails.romField.text = ""
@@ -58,18 +65,24 @@ Dialog {
     onAccepted: {
         backendRef.add_game_full(
             addDetails.nameField.text,
-            addDetails.genreField.text,
+            addDetails.genreValue.text,
             addDetails.platformField.editText || addDetails.platformField.currentText,
+            addDetails.developersField.editText || addDetails.developersField.currentText,
+            addDetails.publishersField.editText || addDetails.publishersField.currentText,
+            addDetails.categoriesField.editText || addDetails.categoriesField.currentText,
             parseInt(addDetails.playtimeField.text || "0"),
             addDetails.notesField.text,
             addDetails.serialField.text,
             addDetails.exePathField.text,
             addDetails.exePathField.text,
             "",
+            addDetails.launchOptionsField.text,
             addDetails.winePrefixField.text,
-            addDetails.wineDllOverridesField.text,
+            addDetails.envVarsField.text,
             addDetails.wineEsyncCheck.checked,
             addDetails.wineFsyncCheck.checked,
+            addDetails.protonWaylandCheck.checked,
+            addDetails.protonDiscordRichPresenceCheck.checked,
             addDetails.windowsOnlyCheck.checked,
             addDetails.installedCheck.checked,
             addDetails.coverField.text,

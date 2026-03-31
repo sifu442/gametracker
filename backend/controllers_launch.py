@@ -876,10 +876,52 @@ class LaunchControllerOps:
             if not client_path:
                 c.errorMessage.emit("Riot Client not found.")
                 return
-            _launch_subprocess_and_track(
-                [client_path, f"--launch-product={product_id}", "--launch-patchline=live"],
-                "Failed to launch Riot Client.",
-            )
+            pid_l = str(product_id or "").strip().lower()
+            launch_product = pid_l
+            launch_patchline = "live"
+            if "." in pid_l:
+                parts = [p for p in pid_l.split(".") if p]
+                if parts:
+                    launch_product = parts[0]
+                    if len(parts) > 1:
+                        launch_patchline = parts[1]
+            launch_cmd = [
+                client_path,
+                f"--launch-product={launch_product}",
+                f"--launch-patchline={launch_patchline}",
+            ]
+            baseline_pids = set()
+            try:
+                baseline_pids = {p.pid for p in psutil.process_iter(["pid"])}
+                launch_env = sanitized_subprocess_env(os.environ.copy())
+                subprocess.Popen(launch_cmd, env=launch_env)
+            except Exception:
+                c.errorMessage.emit("Failed to launch Riot Client.")
+                return
+            last_ts = time.time()
+            process_name = str(game_data.get("process_name") or "").strip()
+            if process_name:
+                c._game_manager.set_last_played(process_name, last_ts)
+                c.trackingChanged.emit()
+            try:
+                prev = float(game_data.get("last_played") or 0)
+            except Exception:
+                prev = 0
+            if last_ts > prev:
+                game_data["last_played"] = float(last_ts)
+                c._game_manager.save_library()
+                c.libraryChanged.emit()
+            self._steam_probe_game_id = c._selected_game_id
+            self._steam_probe_target = process_name
+            self._steam_probe_targets = [process_name] if process_name else []
+            self._steam_probe_source = "riot"
+            self._steam_probe_install_path = str(game_data.get("install_path") or "")
+            self._steam_probe_app_id = str(product_id)
+            self._steam_probe_recover_mode = False
+            self._steam_probe_started_at = time.time()
+            self._steam_probe_baseline_pids = baseline_pids
+            self._steam_probe_deadline = time.time() + 60.0
+            self._steam_probe_timer.start()
             return
 
         if game_data.get("source") == "epic" or game_data.get("legendary_app_name") or game_data.get("heroic_app_name"):
@@ -979,15 +1021,24 @@ class LaunchControllerOps:
         if not exe_path:
             c.errorMessage.emit("No executable configured for this platform.")
             return
+        env_vars = game_data.get("env_vars")
+        if not env_vars:
+            legacy = (game_data.get("wine_dll_overrides") or "").strip()
+            if legacy:
+                env_vars = f"WINEDLLOVERRIDES={legacy}"
+        launch_options = (game_data.get("launch_options") or "").strip() or None
         proc, pid, start_time = GameLauncher.launch_game(
             exe_path,
             use_proton=bool(game_data.get("proton_path")),
             proton_path=game_data.get("proton_path"),
             compat_tool=game_data.get("compat_tool"),
             compat_path=game_data.get("wine_prefix"),
-            wine_dll_overrides=game_data.get("wine_dll_overrides"),
+            env_vars=env_vars,
+            launch_options=launch_options,
             wine_esync=game_data.get("wine_esync"),
             wine_fsync=game_data.get("wine_fsync"),
+            proton_wayland=game_data.get("proton_wayland"),
+            proton_discord_rich_presence=game_data.get("proton_discord_rich_presence"),
             steam_app_id=game_data.get("steam_app_id"),
             game_name=game_data.get("name"),
         )
@@ -1018,25 +1069,13 @@ class LaunchControllerOps:
         c.play_selected()
         return f"Launch requested for {game_id}"
 
-    def create_desktop_shortcut(self):
+    def _build_shortcut_payload(self, game_data):
         c = self._c
-        game_data = c._game_manager.get_game(c._selected_game_id) if c._selected_game_id else None
-        if not game_data:
-            return "No game selected."
-
         raw_name = (game_data.get("name") or "Game").strip()
         if IS_WINDOWS:
             name = re.sub(r"[<>:\"/\\|?*]+", "_", raw_name).strip(" .") or "Game"
         else:
             name = raw_name.replace("/", "_") or "Game"
-        if IS_WINDOWS:
-            desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
-            desktop.mkdir(parents=True, exist_ok=True)
-            shortcut_path = desktop / f"{name}.lnk"
-        else:
-            desktop = Path.home() / "Desktop"
-            desktop.mkdir(parents=True, exist_ok=True)
-            shortcut_path = desktop / f"{name}.desktop"
 
         encoded_game_id = base64.urlsafe_b64encode(c._selected_game_id.encode("utf-8")).decode("ascii")
         if getattr(sys, "frozen", False):
@@ -1069,6 +1108,13 @@ class LaunchControllerOps:
             or _resolve_media_file(game_data.get("hero"))
         )
 
+        return name, cmd, target_hint, icon_path
+
+    def _write_windows_shortcut(self, shortcut_path, cmd, target_hint, icon_path, name):
+        target = str(cmd[0])
+        args = " ".join([f'"{str(ca).replace(chr(34), chr(92) + chr(34))}"' for ca in cmd[1:]])
+        work_dir = str(target_hint.parent) if target_hint.exists() else str(SCRIPT_DIR)
+
         def _windows_shortcut_icon_source(path_obj, game_name):
             if not path_obj:
                 return ""
@@ -1087,55 +1133,95 @@ class LaunchControllerOps:
             except Exception:
                 return ""
 
+        icon_loc = _windows_shortcut_icon_source(icon_path, name)
+
+        def _ps_escape(value):
+            return str(value).replace("'", "''")
+
+        shortcut_ps = _ps_escape(shortcut_path)
+        target_ps = _ps_escape(target)
+        args_ps = _ps_escape(args)
+        work_dir_ps = _ps_escape(work_dir)
+        icon_ps = _ps_escape(icon_loc) if icon_loc else ""
+
+        ps_script = (
+            "$W=New-Object -ComObject WScript.Shell;"
+            f"$S=$W.CreateShortcut('{shortcut_ps}');"
+            f"$S.TargetPath='{target_ps}';"
+            f"$S.Arguments='{args_ps}';"
+            f"$S.WorkingDirectory='{work_dir_ps}';"
+            + (f"$S.IconLocation='{icon_ps},0';" if icon_ps else "")
+            + "$S.Save();"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+
+    def _write_linux_desktop_shortcut(self, shortcut_path, cmd, icon_path, name):
+        exec_cmd = " ".join([f'"{x}"' for x in cmd])
+        content = (
+            "\n".join(
+                [
+                    "[Desktop Entry]",
+                    "Type=Application",
+                    f"Name={name}",
+                    f"Exec={exec_cmd}",
+                    f"Icon={str(icon_path)}" if icon_path else "",
+                    "Categories=Game;",
+                    "Terminal=false",
+                ]
+            )
+            + "\n"
+        )
+        shortcut_path.write_text(content, encoding="utf-8")
+        shortcut_path.chmod(0o755)
+
+    def create_desktop_shortcut(self):
+        c = self._c
+        game_data = c._game_manager.get_game(c._selected_game_id) if c._selected_game_id else None
+        if not game_data:
+            return "No game selected."
+
         try:
+            name, cmd, target_hint, icon_path = self._build_shortcut_payload(game_data)
             if IS_WINDOWS:
-                target = str(cmd[0])
-                args = " ".join([f'"{str(ca).replace(chr(34), chr(92) + chr(34))}"' for ca in cmd[1:]])
-                work_dir = str(target_hint.parent) if target_hint.exists() else str(SCRIPT_DIR)
-                icon_loc = _windows_shortcut_icon_source(icon_path, name)
-
-                def _ps_escape(value):
-                    return str(value).replace("'", "''")
-
-                shortcut_ps = _ps_escape(shortcut_path)
-                target_ps = _ps_escape(target)
-                args_ps = _ps_escape(args)
-                work_dir_ps = _ps_escape(work_dir)
-                icon_ps = _ps_escape(icon_loc) if icon_loc else ""
-
-                ps_script = (
-                    "$W=New-Object -ComObject WScript.Shell;"
-                    f"$S=$W.CreateShortcut('{shortcut_ps}');"
-                    f"$S.TargetPath='{target_ps}';"
-                    f"$S.Arguments='{args_ps}';"
-                    f"$S.WorkingDirectory='{work_dir_ps}';"
-                    + (f"$S.IconLocation='{icon_ps},0';" if icon_ps else "")
-                    + "$S.Save();"
-                )
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                    check=True,
-                )
+                desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
+                desktop.mkdir(parents=True, exist_ok=True)
+                shortcut_path = desktop / f"{name}.lnk"
             else:
-                exec_cmd = " ".join([f'"{x}"' for x in cmd])
-                content = (
-                    "\n".join(
-                        [
-                            "[Desktop Entry]",
-                            "Type=Application",
-                            f"Name={name}",
-                            f"Exec={exec_cmd}",
-                            f"Icon={str(icon_path)}" if icon_path else "",
-                            "Terminal=false",
-                        ]
-                    )
-                    + "\n"
-                )
-                shortcut_path.write_text(content, encoding="utf-8")
-                shortcut_path.chmod(0o755)
+                desktop = Path.home() / "Desktop"
+                desktop.mkdir(parents=True, exist_ok=True)
+                shortcut_path = desktop / f"{name}.desktop"
+            if IS_WINDOWS:
+                self._write_windows_shortcut(shortcut_path, cmd, target_hint, icon_path, name)
+            else:
+                self._write_linux_desktop_shortcut(shortcut_path, cmd, icon_path, name)
             return f"Created shortcut: {shortcut_path}"
         except Exception as e:
             return f"Failed to create shortcut: {e}"
+
+    def create_start_menu_shortcut(self):
+        c = self._c
+        game_data = c._game_manager.get_game(c._selected_game_id) if c._selected_game_id else None
+        if not game_data:
+            return "No game selected."
+
+        try:
+            name, cmd, target_hint, icon_path = self._build_shortcut_payload(game_data)
+            if IS_WINDOWS:
+                start_menu = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+                start_menu.mkdir(parents=True, exist_ok=True)
+                shortcut_path = start_menu / f"{name}.lnk"
+                self._write_windows_shortcut(shortcut_path, cmd, target_hint, icon_path, name)
+            else:
+                start_menu = Path.home() / ".local" / "share" / "applications"
+                start_menu.mkdir(parents=True, exist_ok=True)
+                shortcut_path = start_menu / f"{name}.desktop"
+                self._write_linux_desktop_shortcut(shortcut_path, cmd, icon_path, name)
+            return f"Created start menu shortcut: {shortcut_path}"
+        except Exception as e:
+            return f"Failed to create start menu shortcut: {e}"

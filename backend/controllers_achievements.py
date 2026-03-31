@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+import json
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1087,16 +1088,32 @@ class AchievementsControllerOps:
     def on_steam_worker_game_loaded(self, payload):
         c = self._c
         try:
+            try:
+                from utils.helpers import debug_log
+                debug_log(f"[steam] on_steam_worker_game_loaded payload_type={type(payload).__name__}")
+            except Exception:
+                pass
             appid = str((payload or {}).get("appid") or "")
             if appid:
                 c._steam_merged_by_appid[appid] = payload
-            c.steamGameLoaded.emit(payload)
+            try:
+                c.steamGameLoaded.emit(json.dumps(payload))
+            except Exception:
+                c.steamGameLoaded.emit("{}")
         except Exception:
             pass
 
     def on_steam_worker_unlock_event(self, payload):
         c = self._c
-        c.steamUnlockEvent.emit(payload)
+        try:
+            from utils.helpers import debug_log
+            debug_log(f"[steam] on_steam_worker_unlock_event payload_type={type(payload).__name__}")
+        except Exception:
+            pass
+        try:
+            c.steamUnlockEvent.emit(json.dumps(payload))
+        except Exception:
+            c.steamUnlockEvent.emit("{}")
         try:
             if c._steam_popup_manager and payload:
                 event = UnlockEvent(
@@ -1114,16 +1131,32 @@ class AchievementsControllerOps:
     def on_steamemu_worker_game_loaded(self, payload):
         c = self._c
         try:
+            try:
+                from utils.helpers import debug_log
+                debug_log(f"[steamemu] on_steamemu_worker_game_loaded payload_type={type(payload).__name__}")
+            except Exception:
+                pass
             appid = str((payload or {}).get("appid") or "")
             if appid:
                 c._steam_merged_by_appid[appid] = payload
-            c.steamEmuGameLoaded.emit(payload)
+            try:
+                c.steamEmuGameLoaded.emit(json.dumps(payload))
+            except Exception:
+                c.steamEmuGameLoaded.emit("{}")
         except Exception:
             pass
 
     def on_steamemu_worker_unlock_event(self, payload):
         c = self._c
-        c.steamEmuUnlockEvent.emit(payload)
+        try:
+            from utils.helpers import debug_log
+            debug_log(f"[steamemu] on_steamemu_worker_unlock_event payload_type={type(payload).__name__}")
+        except Exception:
+            pass
+        try:
+            c.steamEmuUnlockEvent.emit(json.dumps(payload))
+        except Exception:
+            c.steamEmuUnlockEvent.emit("{}")
         self.on_steam_worker_unlock_event(payload)
 
     def emit_test_notification(self):

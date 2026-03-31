@@ -38,6 +38,9 @@ class SQLiteStore:
                     id TEXT PRIMARY KEY,
                     name TEXT,
                     genre TEXT,
+                    developers TEXT,
+                    publishers TEXT,
+                    categories TEXT,
                     platform TEXT,
                     notes TEXT,
                     playtime INTEGER,
@@ -66,6 +69,26 @@ class SQLiteStore:
                     last_played REAL,
                     exe_paths_json TEXT,
                     raw_json TEXT NOT NULL
+                )
+                """
+            )
+            self._ensure_game_columns(conn)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS genres (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS game_genres (
+                    game_id TEXT NOT NULL,
+                    genre_id INTEGER NOT NULL,
+                    PRIMARY KEY (game_id, genre_id),
+                    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+                    FOREIGN KEY (genre_id) REFERENCES genres(id) ON DELETE CASCADE
                 )
                 """
             )
@@ -125,6 +148,93 @@ class SQLiteStore:
                 """
             )
             conn.commit()
+            self._migrate_genres_from_games(conn)
+
+    def _ensure_game_columns(self, conn):
+        """Add new columns to games table when upgrading schema."""
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(games)").fetchall()}
+        except Exception:
+            return
+        for name in ("developers", "publishers", "categories"):
+            if name not in cols:
+                try:
+                    conn.execute(f"ALTER TABLE games ADD COLUMN {name} TEXT")
+                except Exception:
+                    continue
+
+    @staticmethod
+    def _split_csv(value):
+        if isinstance(value, list):
+            items = value
+        else:
+            items = str(value or "").split(",")
+        out = []
+        seen = set()
+        for item in items:
+            name = str(item or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(name)
+        return out
+
+    def _migrate_genres_from_games(self, conn):
+        """Rebuild genre join rows from games.genre values."""
+        try:
+            rows = conn.execute("SELECT id, genre FROM games").fetchall()
+        except Exception:
+            return
+        try:
+            conn.execute("DELETE FROM game_genres")
+        except Exception:
+            return
+        for gid, genre_text in rows:
+            names = self._split_csv(genre_text)
+            if not names:
+                continue
+            self._write_game_genres(conn, gid, names)
+        self._prune_unused_genres(conn)
+
+    def _prune_unused_genres(self, conn):
+        try:
+            conn.execute(
+                """
+                DELETE FROM genres
+                WHERE id NOT IN (SELECT DISTINCT genre_id FROM game_genres)
+                """
+            )
+        except Exception:
+            return
+
+    def _upsert_genres(self, conn, names):
+        ids = {}
+        for name in names:
+            try:
+                conn.execute("INSERT OR IGNORE INTO genres(name) VALUES (?)", (name,))
+                row = conn.execute("SELECT id FROM genres WHERE name = ?", (name,)).fetchone()
+                if row:
+                    ids[name] = int(row[0])
+            except Exception:
+                continue
+        return ids
+
+    def _write_game_genres(self, conn, gid, names):
+        conn.execute("DELETE FROM game_genres WHERE game_id = ?", (gid,))
+        if not names:
+            return
+        ids = self._upsert_genres(conn, names)
+        for name in names:
+            gid_value = ids.get(name)
+            if gid_value is None:
+                continue
+            conn.execute(
+                "INSERT OR IGNORE INTO game_genres(game_id, genre_id) VALUES (?, ?)",
+                (gid, gid_value),
+            )
 
     @staticmethod
     def _loads(payload, default):
@@ -215,6 +325,16 @@ class SQLiteStore:
                 "SELECT game_id, idx, type, url FROM game_links ORDER BY game_id, idx"
             ).fetchall():
                 links_by_game.setdefault(gid, []).append({"type": ltype or "", "url": url or ""})
+            genres_by_game = {}
+            for gid, name in conn.execute(
+                """
+                SELECT gg.game_id, g.name
+                FROM game_genres gg
+                JOIN genres g ON g.id = gg.genre_id
+                ORDER BY g.name
+                """
+            ).fetchall():
+                genres_by_game.setdefault(gid, []).append(name)
         for gid, raw_json in rows:
             game = self._loads(raw_json or "{}", {})
             if not isinstance(game, dict):
@@ -222,31 +342,40 @@ class SQLiteStore:
             game.setdefault("id", gid)
             if (not isinstance(game.get("links"), list)) and gid in links_by_game:
                 game["links"] = links_by_game[gid]
+            if gid in genres_by_game:
+                game["genre"] = ", ".join(genres_by_game[gid])
+                game["genres"] = list(genres_by_game[gid])
             out[gid] = game
         return out if out else default
 
     def _write_library(self, conn, data: dict):
         conn.execute("DELETE FROM game_links")
+        conn.execute("DELETE FROM game_genres")
         conn.execute("DELETE FROM games")
         for gid, game in (data or {}).items():
             if not isinstance(game, dict):
                 continue
             row = dict(game)
             row["id"] = gid
+            genre_list = self._split_csv(row.get("genre") or row.get("genres"))
+            row["genre"] = ", ".join(genre_list)
             conn.execute(
                 """
                 INSERT INTO games(
-                    id, name, genre, platform, notes, playtime, installed, hidden,
+                    id, name, genre, developers, publishers, categories, platform, notes, playtime, installed, hidden,
                     is_emulated, emulator_id, rom_path, process_name, steam_app_id,
                     source, legendary_app_name, serial, added_date, cover, logo, hero,
                     install_path, install_location, proton_path, windows_only, compat_tool,
                     wine_prefix, wine_dll_overrides, first_played, last_played, exe_paths_json, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     gid,
                     row.get("name"),
                     row.get("genre"),
+                    row.get("developers"),
+                    row.get("publishers"),
+                    row.get("categories"),
                     row.get("platform"),
                     row.get("notes"),
                     int(row.get("playtime") or 0),
@@ -277,6 +406,8 @@ class SQLiteStore:
                     json.dumps(row, ensure_ascii=False),
                 ),
             )
+            if genre_list:
+                self._write_game_genres(conn, gid, genre_list)
             links = row.get("links")
             if isinstance(links, list):
                 for idx, link in enumerate(links):

@@ -53,6 +53,18 @@ def _send_to_running_instance(payload: dict) -> bool:
 
 def main():
     """Application entry point"""
+    def _log_unhandled(exc_type, exc_value, exc_tb):
+        try:
+            import traceback
+            log_path = Path(__file__).parent / "crash_trace.log"
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write("\n--- Unhandled Exception ---\n")
+                traceback.print_exception(exc_type, exc_value, exc_tb, file=fh)
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _log_unhandled
     debug_log(f"[debug] main entry argv={sys.argv!r}")
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--launch-game-id", dest="launch_game_id", default="")
